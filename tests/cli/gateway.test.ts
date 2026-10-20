@@ -91,3 +91,11 @@ describe('CliVaultGateway safety', () => {
 		});
 	});
 });
+
+describe('CliVaultGateway version', () => {
+	it('runs the version command against the configured vault', async () => {
+		const runner = new RecordingRunner('1.14.4');
+		await new CliVaultGateway(runner, { vaultName: 'Main' }).version();
+		expect(runner.calls[0]).toEqual(['vault=Main', 'version']);
+	});
+});

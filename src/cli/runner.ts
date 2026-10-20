@@ -17,6 +17,11 @@ export class CliError extends Error {
 
 export const DEFAULT_BINARY = 'obsidian';
 
+/** The CLI is a separate Electron process; variables meant for the host app must not leak into it. */
+export function sanitizedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return Object.fromEntries(Object.entries(env).filter(([key]) => !key.toUpperCase().startsWith('ELECTRON_')));
+}
+
 /**
  * Executables to try, in order. Obsidian launched from a desktop shortcut often lacks the directories the CLI
  * registers itself in (see the Troubleshooting section of the CLI docs), so the default name falls back to them.
@@ -41,6 +46,8 @@ export class ExecFileRunner implements CommandRunner {
 		private readonly platform: string = process.platform,
 		private readonly home: string = process.env.HOME ?? '',
 		private readonly localAppData: string = process.env.LOCALAPPDATA ?? '',
+		/** Working directory for the CLI; the vault folder makes the CLI target this vault by default. */
+		private readonly cwd?: string,
 	) {}
 
 	async run(args: string[]): Promise<string> {
@@ -62,7 +69,7 @@ export class ExecFileRunner implements CommandRunner {
 			execFile(
 				binary,
 				args,
-				{ maxBuffer: 64 * 1024 * 1024, timeout: this.timeoutMs, windowsHide: true },
+				{ maxBuffer: 64 * 1024 * 1024, timeout: this.timeoutMs, windowsHide: true, cwd: this.cwd, env: sanitizedEnv(process.env) },
 				(error, stdout, stderr) => {
 					if (error) {
 						const notFound = (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -70,7 +77,7 @@ export class ExecFileRunner implements CommandRunner {
 							new CliError(
 								notFound
 									? `Obsidian CLI not found at "${binary}". Enable it under Settings → General → Command line interface, or set its path in the plugin settings.`
-									: `Obsidian CLI failed: ${stderr.trim() || error.message}`,
+									: `Obsidian CLI failed (${binary}, ${String((error as NodeJS.ErrnoException).code ?? 'error')}): ${stderr.trim() || stdout.trim() || error.message}`,
 								stderr,
 								notFound,
 							),

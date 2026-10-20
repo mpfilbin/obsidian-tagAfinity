@@ -1,6 +1,7 @@
 import type { EmbeddingProvider } from '../embeddings/provider';
 import type { VaultGateway } from '../cli/gateway';
 import { buildDocFrequencies } from '../text/keywords';
+import { isExcluded } from './exclude';
 import { proseOf } from '../text/tokenize';
 import { extractTags } from '../tags/parse';
 import type { IndexData, IndexedNote } from './store';
@@ -17,6 +18,8 @@ export interface SyncOptions {
 	gateway: VaultGateway;
 	embedder: EmbeddingProvider;
 	index: IndexData;
+	/** Paths matching any of these patterns are not indexed. */
+	exclude?: string[];
 	concurrency?: number;
 	batchSize?: number;
 	onProgress?: (done: number, total: number, phase: 'reading' | 'embedding') => void;
@@ -57,7 +60,8 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const batchSize = options.batchSize ?? 16;
 	const previous = options.index.model === embedder.id ? options.index : emptyIndex(embedder.id);
 
-	const paths = await gateway.listNotes();
+	const exclude = options.exclude ?? [];
+	const paths = (await gateway.listNotes()).filter((path) => !isExcluded(path, exclude));
 	let read = 0;
 	const contents = await mapPool(
 		paths,

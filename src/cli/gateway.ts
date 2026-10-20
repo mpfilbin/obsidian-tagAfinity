@@ -42,6 +42,11 @@ export class CliVaultGateway implements VaultGateway {
 		return output;
 	}
 
+	/** Obsidian's version string; a cheap way to check that the CLI can reach the app. */
+	async version(): Promise<string> {
+		return (await this.run('version')).trim();
+	}
+
 	async listNotes(): Promise<string[]> {
 		const out = await this.run('files', 'ext=md');
 		return out

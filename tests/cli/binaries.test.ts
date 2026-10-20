@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { candidateBinaries } from '../../src/cli/runner';
+import { candidateBinaries, sanitizedEnv } from '../../src/cli/runner';
 
 describe('candidateBinaries', () => {
 	describe('when a custom path is configured', () => {
@@ -35,6 +35,20 @@ describe('candidateBinaries', () => {
 	describe('when the default name is used on windows without LOCALAPPDATA', () => {
 		it('uses the redirector name alone', () => {
 			expect(candidateBinaries('obsidian', 'win32', 'C:\\Users\\u', '')).toEqual(['obsidian.com']);
+		});
+	});
+});
+
+describe('sanitizedEnv', () => {
+	describe('when the environment has ELECTRON_ variables', () => {
+		it('removes them so the CLI starts as a fresh app', () => {
+			expect(Object.keys(sanitizedEnv({ ELECTRON_RUN_AS_NODE: '1', ELECTRON_NO_ATTACH_CONSOLE: '1', PATH: 'x' }))).toEqual(['PATH']);
+		});
+	});
+
+	describe('when the environment has other variables', () => {
+		it('keeps them', () => {
+			expect(sanitizedEnv({ PATH: 'x', HOME: 'y' })).toEqual({ PATH: 'x', HOME: 'y' });
 		});
 	});
 });

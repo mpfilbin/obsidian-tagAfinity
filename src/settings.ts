@@ -13,6 +13,8 @@ export interface TagafinitySettings {
 	allowNewTags: boolean;
 	maxNewTags: number;
 	syncOnStartup: boolean;
+	/** One pattern per line: "*.ext" or a folder path. */
+	excludePatterns: string;
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	allowNewTags: true,
 	maxNewTags: 2,
 	syncOnStartup: false,
+	excludePatterns: '*.excalidraw.md',
 };
 
 export class TagafinitySettingTab extends PluginSettingTab {
@@ -89,6 +92,16 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(this.plugin.settings.embeddingModel).onChange(async (value) => {
 					this.plugin.settings.embeddingModel = value.trim() || DEFAULT_MODEL;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName('Excluded notes')
+			.setDesc('Notes to leave out of the index, one per line. Use *.ext to match a file ending, or a folder path.')
+			.addTextArea((area) =>
+				area.setValue(this.plugin.settings.excludePatterns).onChange(async (value) => {
+					this.plugin.settings.excludePatterns = value;
 					await this.plugin.saveSettings();
 				}),
 			);

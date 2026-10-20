@@ -1,6 +1,7 @@
-import { Notice, Plugin, normalizePath } from 'obsidian';
+import { FileSystemAdapter, Notice, Plugin, normalizePath } from 'obsidian';
 import { CliVaultGateway, type VaultGateway } from './cli/gateway';
-import { ExecFileRunner } from './cli/runner';
+import { DEFAULT_BINARY, ExecFileRunner } from './cli/runner';
+import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
 import { TransformersEmbeddingProvider } from './embeddings/transformers';
 import type { EmbeddingProvider } from './embeddings/provider';
@@ -47,6 +48,12 @@ export default class Tagafinity extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'test-cli-connection',
+			name: 'Test CLI connection',
+			callback: () => void this.testCli(),
+		});
+
+		this.addCommand({
 			id: 'undo-last-tag-change',
 			name: 'Undo last tag change',
 			callback: () => void this.undoLastChange(),
@@ -77,10 +84,31 @@ export default class Tagafinity extends Plugin {
 		}
 	}
 
+	private get cliGateway(): CliVaultGateway {
+		const adapter = this.app.vault.adapter;
+		const vaultPath = adapter instanceof FileSystemAdapter ? adapter.getBasePath() : undefined;
+		const runner = new ExecFileRunner(
+			this.settings.cliPath || DEFAULT_BINARY,
+			60_000,
+			process.platform,
+			process.env.HOME ?? '',
+			process.env.LOCALAPPDATA ?? '',
+			vaultPath,
+		);
+		// Target this vault explicitly rather than relying on whichever vault the CLI considers active.
+		return new CliVaultGateway(runner, { vaultName: this.settings.vaultName || this.app.vault.getName() });
+	}
+
 	get gateway(): VaultGateway {
-		return new CliVaultGateway(new ExecFileRunner(this.settings.cliPath), {
-			vaultName: this.settings.vaultName || undefined,
-		});
+		return this.cliGateway;
+	}
+
+	async testCli(): Promise<void> {
+		try {
+			new Notice(`Obsidian CLI is reachable (Obsidian ${await this.cliGateway.version()}).`);
+		} catch (error) {
+			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 20000);
+		}
 	}
 
 	get embeddingProvider(): EmbeddingProvider {
@@ -114,6 +142,7 @@ export default class Tagafinity extends Plugin {
 					gateway: this.gateway,
 					embedder: this.embeddingProvider,
 					index: this.index,
+					exclude: parseExcludePatterns(this.settings.excludePatterns),
 					onProgress: (done, total, phase) =>
 						notice?.setMessage(`Tagafinity: ${phase === 'reading' ? 'reading' : 'embedding'} notes ${done}/${total}`),
 				});

@@ -49,6 +49,14 @@ describe('syncIndex', () => {
 		});
 	});
 
+	describe('when a note matches an exclude pattern', () => {
+		it('does not index it', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'Map.excalidraw.md': 'compressed json' });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), exclude: ['*.excalidraw.md'] });
+			expect(Object.keys(index.notes)).toEqual(['a.md']);
+		});
+	});
+
 	describe('when the embedding model changed', () => {
 		it('re-embeds everything', async () => {
 			const gateway = new FakeGateway({ 'a.md': 'one' });
