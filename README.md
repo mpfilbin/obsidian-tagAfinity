@@ -36,5 +36,6 @@ Writes are verified by reading each note back; if the CLI did not store exactly 
 just setup   # install
 just dev     # watch build
 just check   # lint + test + build
-just install # copy into $OBSIDIAN_VAULT
+just install # build and copy into $OBSIDIAN_VAULT (or scripts/install.sh / install.ps1 <vault>)
+just release patch|minor|major # bump version and commit; merging to master publishes the release
 ```
