@@ -49,6 +49,38 @@ describe('syncIndex', () => {
 		});
 	});
 
+	describe('when embedding takes several batches', () => {
+		it('reports a checkpoint after every batch', async () => {
+			const checkpoints: number[] = [];
+			await syncIndex({
+				gateway: new FakeGateway({ 'a.md': 'one', 'b.md': 'two', 'c.md': 'three' }),
+				embedder: new CountingEmbedder(),
+				index: emptyIndex('fake'),
+				batchSize: 1,
+				onCheckpoint: (index) => void checkpoints.push(Object.keys(index.notes).length),
+			});
+			expect(checkpoints).toEqual([1, 2, 3]);
+		});
+
+		it('keeps notes from the previous index that are not processed yet', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'b.md': 'two' });
+			const first = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake') });
+			gateway.files['a.md'] = 'one changed';
+			gateway.files['b.md'] = 'two changed';
+			let firstCheckpoint = 0;
+			await syncIndex({
+				gateway,
+				embedder: new CountingEmbedder(),
+				index: first.index,
+				batchSize: 1,
+				onCheckpoint: (index) => {
+					firstCheckpoint ||= Object.keys(index.notes).length;
+				},
+			});
+			expect(firstCheckpoint).toBe(2);
+		});
+	});
+
 	describe('when a note matches an exclude pattern', () => {
 		it('does not index it', async () => {
 			const gateway = new FakeGateway({ 'a.md': 'one', 'Map.excalidraw.md': 'compressed json' });

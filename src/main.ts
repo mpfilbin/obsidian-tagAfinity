@@ -144,6 +144,7 @@ export default class Tagafinity extends Plugin {
 	/** Builds or refreshes the index. Concurrent calls share one run. */
 	updateIndex(quiet = false): Promise<void> {
 		this.syncing ??= (async () => {
+			console.debug(`[tagafinity] index update started (${quiet ? 'background' : 'requested'})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
 			try {
 				const { index, stats } = await syncIndex({
@@ -152,11 +153,13 @@ export default class Tagafinity extends Plugin {
 					index: this.index,
 					exclude: parseExcludePatterns(this.settings.excludePatterns),
 					concurrency: this.settings.cliConcurrency,
+					onCheckpoint: (partial) => saveIndex(this.indexStorage(), partial),
 					onProgress: (done, total, phase) =>
 						notice?.setMessage(`Tagafinity: ${phase === 'reading' ? 'reading' : 'embedding'} notes ${done}/${total}`),
 				});
 				this.index = index;
 				await saveIndex(this.indexStorage(), index);
+				console.debug(`[tagafinity] index update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
 				if (!quiet) {
 					new Notice(`Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`);
@@ -173,7 +176,10 @@ export default class Tagafinity extends Plugin {
 
 	/** Makes sure there is an index to work with, building one on first use. */
 	async ensureIndex(): Promise<boolean> {
-		if (Object.keys(this.index.notes).length === 0) await this.updateIndex();
+		if (Object.keys(this.index.notes).length === 0) {
+			if (this.syncing) new Notice('Waiting for the index update that is already running…');
+			await this.updateIndex();
+		}
 		return Object.keys(this.index.notes).length > 0;
 	}
 

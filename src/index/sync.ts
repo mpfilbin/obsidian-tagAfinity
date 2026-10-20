@@ -23,6 +23,11 @@ export interface SyncOptions {
 	concurrency?: number;
 	batchSize?: number;
 	onProgress?: (done: number, total: number, phase: 'reading' | 'embedding') => void;
+	/**
+	 * Called after every embedded batch with an index that is safe to persist: finished notes plus, for notes not
+	 * reached yet, their previous entries. Lets an interrupted run resume instead of starting over.
+	 */
+	onCheckpoint?: (index: IndexData) => void | Promise<void>;
 }
 
 export function hashContent(content: string): string {
@@ -98,6 +103,10 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 		});
 		embedded += batch.length;
 		onProgress?.(embedded, pending.length, 'embedding');
+		if (options.onCheckpoint) {
+			const carried = Object.fromEntries(paths.flatMap((p) => (previous.notes[p] ? [[p, previous.notes[p]!]] : [])));
+			await options.onCheckpoint({ ...previous, notes: { ...carried, ...notes } });
+		}
 	}
 
 	const df = buildDocFrequencies(contents);
