@@ -15,6 +15,8 @@ export interface TagafinitySettings {
 	syncOnStartup: boolean;
 	/** One pattern per line: "*.ext" or a folder path. */
 	excludePatterns: string;
+	/** How many CLI processes run at once while indexing. */
+	cliConcurrency: number;
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	maxNewTags: 2,
 	syncOnStartup: false,
 	excludePatterns: '*.excalidraw.md',
+	cliConcurrency: 1,
 };
 
 export class TagafinitySettingTab extends PluginSettingTab {
@@ -96,6 +99,8 @@ export class TagafinitySettingTab extends PluginSettingTab {
 				}),
 			);
 
+		this.slider('Parallel CLI calls', 'Notes read at once while indexing. Raise it for speed if indexing runs without errors.', 'cliConcurrency', 1, 6, 1);
+
 		new Setting(containerEl)
 			.setName('Excluded notes')
 			.setDesc('Notes to leave out of the index, one per line. Use *.ext to match a file ending, or a folder path.')
@@ -120,7 +125,7 @@ export class TagafinitySettingTab extends PluginSettingTab {
 	private slider(
 		name: string,
 		desc: string,
-		key: 'neighbors' | 'minSimilarity' | 'minScore' | 'maxSuggestions' | 'maxNewTags',
+		key: 'neighbors' | 'minSimilarity' | 'minScore' | 'maxSuggestions' | 'maxNewTags' | 'cliConcurrency',
 		min: number,
 		max: number,
 		step: number,

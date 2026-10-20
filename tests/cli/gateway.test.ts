@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CliVaultGateway, encodeContent } from '../../src/cli/gateway';
+import { CliError } from '../../src/cli/runner';
 import type { CommandRunner } from '../../src/cli/runner';
 
 class RecordingRunner implements CommandRunner {
@@ -97,5 +98,50 @@ describe('CliVaultGateway version', () => {
 		const runner = new RecordingRunner('1.14.4');
 		await new CliVaultGateway(runner, { vaultName: 'Main' }).version();
 		expect(runner.calls[0]).toEqual(['vault=Main', 'version']);
+	});
+});
+
+class FlakyRunner implements CommandRunner {
+	calls = 0;
+	constructor(
+		private readonly failures: number,
+		private readonly message: string,
+	) {}
+	run() {
+		this.calls++;
+		if (this.calls <= this.failures) return Promise.reject(new CliError(this.message));
+		return Promise.resolve('ok');
+	}
+}
+
+describe('CliVaultGateway failures', () => {
+	describe('when the CLI briefly cannot find Obsidian', () => {
+		it('retries and succeeds', async () => {
+			const gateway = new CliVaultGateway(new FlakyRunner(2, 'The CLI is unable to find Obsidian.'), { retryDelayMs: 0 });
+			expect(await gateway.readNote('a.md')).toBe('ok');
+		});
+	});
+
+	describe('when the CLI keeps failing to find Obsidian', () => {
+		it('gives up after three attempts', async () => {
+			const runner = new FlakyRunner(99, 'The CLI is unable to find Obsidian.');
+			await new CliVaultGateway(runner, { retryDelayMs: 0 }).readNote('a.md').catch(() => undefined);
+			expect(runner.calls).toBe(3);
+		});
+	});
+
+	describe('when the CLI fails for another reason', () => {
+		it('does not retry', async () => {
+			const runner = new FlakyRunner(99, 'permission denied');
+			await new CliVaultGateway(runner, { retryDelayMs: 0 }).readNote('a.md').catch(() => undefined);
+			expect(runner.calls).toBe(1);
+		});
+	});
+
+	describe('when a command fails', () => {
+		it('names the command in the error', async () => {
+			const gateway = new CliVaultGateway(new FlakyRunner(99, 'boom'), { retryDelayMs: 0 });
+			await expect(gateway.listNotes()).rejects.toThrow('files');
+		});
 	});
 });

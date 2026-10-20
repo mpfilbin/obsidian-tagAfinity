@@ -103,11 +103,19 @@ export default class Tagafinity extends Plugin {
 		return this.cliGateway;
 	}
 
+	/** Walks through every kind of CLI call the plugin makes, reporting the first one that fails. */
 	async testCli(): Promise<void> {
+		const gateway = this.cliGateway;
+		let step = 'version';
 		try {
-			new Notice(`Obsidian CLI is reachable (Obsidian ${await this.cliGateway.version()}).`);
+			const version = await gateway.version();
+			step = 'listing notes';
+			const notes = await gateway.listNotes();
+			step = 'reading a note';
+			if (notes[0]) await gateway.readNote(notes[0]);
+			new Notice(`Obsidian CLI works (Obsidian ${version}, ${notes.length} notes found).`);
 		} catch (error) {
-			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 20000);
+			new Notice(`Tagafinity: CLI test failed while ${step}. ${error instanceof Error ? error.message : String(error)}`, 20000);
 		}
 	}
 
@@ -143,6 +151,7 @@ export default class Tagafinity extends Plugin {
 					embedder: this.embeddingProvider,
 					index: this.index,
 					exclude: parseExcludePatterns(this.settings.excludePatterns),
+					concurrency: this.settings.cliConcurrency,
 					onProgress: (done, total, phase) =>
 						notice?.setMessage(`Tagafinity: ${phase === 'reading' ? 'reading' : 'embedding'} notes ${done}/${total}`),
 				});

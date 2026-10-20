@@ -56,7 +56,7 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
 /** Brings the index up to date with the vault, re-embedding only notes whose content changed. */
 export async function syncIndex(options: SyncOptions): Promise<{ index: IndexData; stats: SyncStats }> {
 	const { gateway, embedder, onProgress } = options;
-	const concurrency = options.concurrency ?? 6;
+	const concurrency = options.concurrency ?? 1;
 	const batchSize = options.batchSize ?? 16;
 	const previous = options.index.model === embedder.id ? options.index : emptyIndex(embedder.id);
 

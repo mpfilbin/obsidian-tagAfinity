@@ -16,9 +16,13 @@ export interface CliGatewayOptions {
 	vaultName?: string;
 	/** Longest encoded note content that fits on a command line. Defaults to a conservative per-platform value. */
 	maxContentLength?: number;
+	/** Pause before retrying a command that could not reach the running app. */
+	retryDelayMs?: number;
 }
 
 /** Windows limits a whole command line to 32,767 characters; POSIX limits a single argument to 128 KiB. */
+const MAX_ATTEMPTS = 3;
+
 const DEFAULT_MAX_CONTENT = process.platform === 'win32' ? 30_000 : 120_000;
 
 /**
@@ -36,10 +40,23 @@ export class CliVaultGateway implements VaultGateway {
 
 	private async run(command: string, ...args: string[]): Promise<string> {
 		const vault = this.options.vaultName ? [`vault=${this.options.vaultName}`] : [];
-		const output = await this.runner.run([...vault, command, ...args]);
-		// The CLI reports some failures on stdout with a success exit code.
-		if (/^Error:/i.test(output.trimStart())) throw new CliError(output.trim());
-		return output;
+		const delay = this.options.retryDelayMs ?? 400;
+		for (let attempt = 1; ; attempt++) {
+			try {
+				const output = await this.runner.run([...vault, command, ...args]);
+				// The CLI reports some failures on stdout with a success exit code.
+				if (/^Error:/i.test(output.trimStart())) throw new CliError(output.trim());
+				return output;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				// The app occasionally cannot be reached for a moment, e.g. when commands overlap.
+				if (attempt < MAX_ATTEMPTS && /unable to find obsidian/i.test(message)) {
+					await new Promise((resolve) => setTimeout(resolve, delay * attempt));
+					continue;
+				}
+				throw new CliError(`${command} failed: ${message}`, error instanceof CliError ? error.stderr : '');
+			}
+		}
 	}
 
 	/** Obsidian's version string; a cheap way to check that the CLI can reach the app. */
