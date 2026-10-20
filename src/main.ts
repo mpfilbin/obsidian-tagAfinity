@@ -1,5 +1,7 @@
 import { FileSystemAdapter, Notice, Plugin, normalizePath } from 'obsidian';
+import { FallbackWriteGateway } from './cli/fallback-gateway';
 import { CliVaultGateway, type VaultGateway } from './cli/gateway';
+import { ObsidianApiWriter } from './cli/obsidian-writer';
 import { DEFAULT_BINARY, ExecFileRunner } from './cli/runner';
 import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
@@ -135,8 +137,9 @@ export default class Tagafinity extends Plugin {
 		return new CliVaultGateway(runner, { vaultName: this.settings.vaultName || this.app.vault.getName() });
 	}
 
+	/** CLI for everything it can do faithfully; notes it cannot carry (backslashes, very large) are written through the Obsidian API. */
 	get gateway(): VaultGateway {
-		return this.cliGateway;
+		return new FallbackWriteGateway(this.cliGateway, new ObsidianApiWriter(this.app));
 	}
 
 	/** Walks through every kind of CLI call the plugin makes, reporting the first one that fails. */

@@ -12,6 +12,14 @@ export interface VaultGateway {
 	notesWithTag(tag: string): Promise<string[]>;
 }
 
+/** The note's content cannot be passed through the CLI faithfully (backslash escapes, command-line length). */
+export class UnsupportedContentError extends CliError {
+	constructor(message: string) {
+		super(message);
+		this.name = 'UnsupportedContentError';
+	}
+}
+
 export interface CliGatewayOptions {
 	/** Passed as `vault=<name>` when set; otherwise the CLI uses its default vault. */
 	vaultName?: string;
@@ -86,11 +94,11 @@ export class CliVaultGateway implements VaultGateway {
 
 	async writeNote(path: string, content: string): Promise<void> {
 		if (content.includes('\\')) {
-			throw new CliError(`${path} contains a backslash, which cannot be passed safely through the CLI.`);
+			throw new UnsupportedContentError(`${path} contains a backslash, which cannot be passed safely through the CLI.`);
 		}
 		const encoded = encodeContent(content);
 		if (encoded.length > (this.options.maxContentLength ?? DEFAULT_MAX_CONTENT)) {
-			throw new CliError(`${path} is too large to pass through the CLI command line.`);
+			throw new UnsupportedContentError(`${path} is too large to pass through the CLI command line.`);
 		}
 		await this.run('create', `path=${path}`, `content=${encoded}`, 'overwrite');
 	}
