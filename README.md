@@ -17,12 +17,18 @@ Suggests tags for the current note based on how its content relates to the rest 
 
 ## Requirements
 
-- The Obsidian CLI enabled and on your `PATH` (or set its path in the plugin settings).
+- Obsidian 1.12.7 or newer with the CLI enabled (Settings → General → Command line interface). The plugin looks for `obsidian` on your `PATH` and in the location the CLI registers itself in; set a custom path in the plugin settings if needed.
 - The first suggestion downloads the embedding model once; after that inference is fully local.
 
 ## Safety
 
 Writes are verified by reading each note back; if the CLI did not store exactly what was intended, the original is restored. The originals of the last change are kept for the undo command.
+
+### Limitations
+
+- Notes are written back through `obsidian create … overwrite`, whose content argument treats `\n` and `\t` as escapes. Notes containing a backslash (for example LaTeX) are therefore never rewritten and are reported as skipped.
+- Very large notes exceed the command-line length limit (about 30,000 characters on Windows, 120,000 elsewhere) and are skipped the same way.
+- Line endings of rewritten notes are normalised to `\n`.
 
 ## Development
 

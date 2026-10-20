@@ -1,5 +1,6 @@
 import type { VaultGateway } from '../src/cli/gateway';
 import type { IndexData } from '../src/index/store';
+import { extractTags } from '../src/tags/parse';
 import { normalize } from '../src/vector';
 
 export class FakeGateway implements VaultGateway {
@@ -10,6 +11,14 @@ export class FakeGateway implements VaultGateway {
 	}
 	readNote(path: string) {
 		return Promise.resolve(this.files[path] ?? '');
+	}
+	notesWithTag(tag: string) {
+		const wanted = tag.replace(/^#/, '').toLowerCase();
+		return Promise.resolve(
+			Object.entries(this.files)
+				.filter(([, content]) => extractTags(content).all.some((t) => t.toLowerCase() === wanted))
+				.map(([path]) => path),
+		);
 	}
 	writeNote(path: string, content: string) {
 		this.writes.push(path);

@@ -49,3 +49,45 @@ describe('encodeContent', () => {
 		expect(encodeContent('a\r\nb\tc')).toBe('a\\nb\\tc');
 	});
 });
+
+describe('CliVaultGateway safety', () => {
+	describe('when the CLI prints an error with a success exit code', () => {
+		it('rejects instead of returning the message as note content', async () => {
+			const gateway = new CliVaultGateway(new RecordingRunner('Error: File "x.md" not found.'));
+			await expect(gateway.readNote('x.md')).rejects.toThrow('not found');
+		});
+	});
+
+	describe('when writing a note that contains a backslash', () => {
+		it('refuses, because the CLI treats backslash sequences as escapes', async () => {
+			const runner = new RecordingRunner('');
+			await expect(new CliVaultGateway(runner).writeNote('a.md', 'math \\theta')).rejects.toThrow('backslash');
+		});
+
+		it('does not call the CLI', async () => {
+			const runner = new RecordingRunner('');
+			await new CliVaultGateway(runner).writeNote('a.md', 'math \\theta').catch(() => undefined);
+			expect(runner.calls).toEqual([]);
+		});
+	});
+
+	describe('when the note exceeds the command line limit', () => {
+		it('refuses with a size message', async () => {
+			const gateway = new CliVaultGateway(new RecordingRunner(''), { maxContentLength: 10 });
+			await expect(gateway.writeNote('a.md', 'x'.repeat(11))).rejects.toThrow('too large');
+		});
+	});
+
+	describe('notesWithTag', () => {
+		it('asks the CLI for the tag without a hash', async () => {
+			const runner = new RecordingRunner('');
+			await new CliVaultGateway(runner).notesWithTag('#ml');
+			expect(runner.calls[0]).toEqual(['tag', 'name=ml', 'verbose']);
+		});
+
+		it('returns the markdown paths in the output', async () => {
+			const gateway = new CliVaultGateway(new RecordingRunner('#ml\t2\n\ta.md\n\tsub/b.md\n'));
+			expect(await gateway.notesWithTag('ml')).toEqual(['a.md', 'sub/b.md']);
+		});
+	});
+});

@@ -123,8 +123,11 @@ export class CleanupModal extends Modal {
 
 	private async preview(description: string, tag: string, mapper: TagMapper): Promise<void> {
 		try {
-			const paths = notesForTag(this.taxonomy.stats, tag);
-			const plan = await planTagChange(description, paths, this.plugin.gateway, mapper);
+			const gateway = this.plugin.gateway;
+			// Union of the (possibly stale) index and what Obsidian reports now, so edits since the last update are not missed.
+			const live = await gateway.notesWithTag(tag).catch(() => [] as string[]);
+			const paths = [...new Set([...notesForTag(this.taxonomy.stats, tag), ...live])];
+			const plan = await planTagChange(description, paths, gateway, mapper);
 			if (plan.files.length === 0) {
 				new Notice('No notes would change. The index may be out of date, so update it and try again.');
 				return;
