@@ -44,7 +44,7 @@ export class TagafinitySettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('CLI executable')
-			.setDesc('Name or full path of the CLI executable. The default also checks the location the CLI registers itself in.')
+			.setDesc('Name or full path of the CLI executable. The default finds the CLI automatically; on Windows set the full path to Obsidian.com if it fails.')
 			.addText((text) =>
 				text.setValue(this.plugin.settings.cliPath).onChange(async (value) => {
 					this.plugin.settings.cliPath = value.trim() || DEFAULT_SETTINGS.cliPath;

@@ -21,10 +21,15 @@ export const DEFAULT_BINARY = 'obsidian';
  * Executables to try, in order. Obsidian launched from a desktop shortcut often lacks the directories the CLI
  * registers itself in (see the Troubleshooting section of the CLI docs), so the default name falls back to them.
  */
-export function candidateBinaries(configured: string, platform: string, home: string): string[] {
+export function candidateBinaries(configured: string, platform: string, home: string, localAppData = ''): string[] {
 	if (configured !== DEFAULT_BINARY) return [configured];
 	if (platform === 'darwin') return [configured, '/usr/local/bin/obsidian'];
 	if (platform === 'linux') return [configured, `${home}/.local/bin/obsidian`];
+	if (platform === 'win32') {
+		// A bare "obsidian" resolves to the GUI Obsidian.exe; the CLI needs the Obsidian.com terminal redirector.
+		const redirector = `${DEFAULT_BINARY}.com`;
+		return localAppData ? [redirector, `${localAppData}\\Programs\\Obsidian\\Obsidian.com`] : [redirector];
+	}
 	return [configured];
 }
 
@@ -35,10 +40,11 @@ export class ExecFileRunner implements CommandRunner {
 		private readonly timeoutMs = 60_000,
 		private readonly platform: string = process.platform,
 		private readonly home: string = process.env.HOME ?? '',
+		private readonly localAppData: string = process.env.LOCALAPPDATA ?? '',
 	) {}
 
 	async run(args: string[]): Promise<string> {
-		const binaries = candidateBinaries(this.binary, this.platform, this.home);
+		const binaries = candidateBinaries(this.binary, this.platform, this.home, this.localAppData);
 		let lastError: unknown;
 		for (const binary of binaries) {
 			try {

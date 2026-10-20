@@ -21,8 +21,20 @@ describe('candidateBinaries', () => {
 	});
 
 	describe('when the default name is used on windows', () => {
-		it('relies on PATH alone', () => {
-			expect(candidateBinaries('obsidian', 'win32', 'C:\\Users\\u')).toEqual(['obsidian']);
+		it('asks for the terminal redirector rather than the GUI executable', () => {
+			expect(candidateBinaries('obsidian', 'win32', 'C:\\Users\\u', 'C:\\Users\\u\\AppData\\Local')[0]).toBe('obsidian.com');
+		});
+
+		it('falls back to the per-user install location', () => {
+			expect(candidateBinaries('obsidian', 'win32', 'C:\\Users\\u', 'C:\\Users\\u\\AppData\\Local')).toContain(
+				'C:\\Users\\u\\AppData\\Local\\Programs\\Obsidian\\Obsidian.com',
+			);
+		});
+	});
+
+	describe('when the default name is used on windows without LOCALAPPDATA', () => {
+		it('uses the redirector name alone', () => {
+			expect(candidateBinaries('obsidian', 'win32', 'C:\\Users\\u', '')).toEqual(['obsidian.com']);
 		});
 	});
 });
