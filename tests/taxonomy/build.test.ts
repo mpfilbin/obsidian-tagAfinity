@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTaxonomy, buildTree, collectTagStats } from '../../src/taxonomy/build';
+import { buildTaxonomy, buildTaxonomyAsync, buildTree, collectTagStats } from '../../src/taxonomy/build';
 import { indexOf } from '../helpers';
 
 describe('collectTagStats', () => {
@@ -90,5 +90,28 @@ describe('buildTaxonomy', () => {
 			const t = buildTaxonomy(indexOf({ 'a.md': { vector: [1], tags: ['solo'] }, 'b.md': { vector: [1], tags: ['x', 'y'] }, 'c.md': { vector: [1], tags: ['x', 'y'] } }));
 			expect(t.pruneCandidates.map((p) => p.tag)).toEqual(['solo']);
 		});
+	});
+});
+
+describe('buildTaxonomyAsync', () => {
+	const notes = {
+		'a.md': { vector: [1, 0.01], tags: ['machine-learning', 'bread'] },
+		'b.md': { vector: [1, 0.02], tags: ['machine-learning', 'baking'] },
+		'c.md': { vector: [1, 0.03], tags: ['machinelearning', 'bread'] },
+		'd.md': { vector: [1, 0.04], tags: ['ml', 'baking'] },
+	};
+
+	it('produces the same taxonomy as the synchronous version', async () => {
+		const index = indexOf(notes);
+		expect(await buildTaxonomyAsync(index, () => Promise.resolve())).toEqual(buildTaxonomy(index));
+	});
+
+	it('yields while working', async () => {
+		let ticks = 0;
+		await buildTaxonomyAsync(indexOf(notes), () => {
+			ticks++;
+			return Promise.resolve();
+		});
+		expect(ticks).toBeGreaterThan(3);
 	});
 });

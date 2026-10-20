@@ -1,6 +1,8 @@
 import type { EmbeddingProvider } from '../embeddings/provider';
 import type { VaultGateway } from '../cli/gateway';
-import { buildDocFrequencies } from '../text/keywords';
+import { log } from '../log';
+import { buildDocFrequenciesAsync } from '../text/keywords';
+import { yieldEvery, yieldToUi } from '../yield';
 import { isExcluded } from './exclude';
 import { proseOf } from '../text/tokenize';
 import { extractTags } from '../tags/parse';
@@ -22,6 +24,8 @@ export interface SyncOptions {
 	exclude?: string[];
 	concurrency?: number;
 	batchSize?: number;
+	/** Persist a checkpoint every this many embedded batches (saving serializes the whole index). */
+	checkpointEvery?: number;
 	onProgress?: (done: number, total: number, phase: 'reading' | 'embedding') => void;
 	/**
 	 * Called after every embedded batch with an index that is safe to persist: finished notes plus, for notes not
@@ -65,20 +69,26 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
 export async function syncIndex(options: SyncOptions): Promise<{ index: IndexData; stats: SyncStats }> {
 	const { gateway, embedder, onProgress } = options;
 	const concurrency = options.concurrency ?? 1;
-	const batchSize = options.batchSize ?? 16;
+	const checkpointEvery = options.checkpointEvery ?? 5;
 	const previous = options.index.model === embedder.id ? options.index : emptyIndex(embedder.id);
 
 	// Fail fast: loading the model is the step most likely to break, and reading every note first wastes minutes.
-	await embedder.embed([WARM_UP_TEXT]);
+	await log.time('index', 'embedder warm-up (loads the model)', () => embedder.embed([WARM_UP_TEXT]));
+	const batchSize = options.batchSize ?? embedder.batchSize ?? 16;
 
 	const exclude = options.exclude ?? [];
-	const paths = (await gateway.listNotes()).filter((path) => !isExcluded(path, exclude));
+	const listed = await gateway.listNotes();
+	const paths = listed.filter((path) => !isExcluded(path, exclude));
+	log.info('index', `vault has ${listed.length} notes; indexing ${paths.length} (${listed.length - paths.length} excluded)`, { batchSize, concurrency });
 	let read = 0;
 	const contents = await mapPool(
 		paths,
 		concurrency,
 		(path) => gateway.readNote(path),
-		() => onProgress?.(++read, paths.length, 'reading'),
+		() => {
+			onProgress?.(++read, paths.length, 'reading');
+			if (read % 100 === 0 || read === paths.length) log.info('index', `read ${read}/${paths.length} notes`);
+		},
 	);
 
 	const notes: Record<string, IndexedNote> = {};
@@ -100,22 +110,28 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	});
 	stats.removed = Object.keys(previous.notes).filter((p) => !paths.includes(p)).length;
 
+	log.info('index', `${pending.length} notes need embedding (${stats.unchanged} unchanged)`);
 	let embedded = 0;
+	let batches = 0;
 	for (let start = 0; start < pending.length; start += batchSize) {
 		const batch = pending.slice(start, start + batchSize);
-		const vectors = await embedder.embed(batch.map((n) => embeddingText(n.path, n.content)));
+		const vectors = await log.time('index', `embedding ${start + 1}-${start + batch.length} of ${pending.length}`, () =>
+			embedder.embed(batch.map((n) => embeddingText(n.path, n.content))),
+		);
 		batch.forEach((n, i) => {
 			notes[n.path] = { hash: n.hash, vector: vectors[i]!, tags: extractTags(n.content).all };
 		});
 		embedded += batch.length;
 		onProgress?.(embedded, pending.length, 'embedding');
-		if (options.onCheckpoint) {
+		batches++;
+		if (options.onCheckpoint && batches % checkpointEvery === 0) {
 			const carried = Object.fromEntries(paths.flatMap((p) => (previous.notes[p] ? [[p, previous.notes[p]!]] : [])));
-			await options.onCheckpoint({ ...previous, notes: { ...carried, ...notes } });
+			await log.time('index', 'saving checkpoint', async () => options.onCheckpoint?.({ ...previous, notes: { ...carried, ...notes } }));
 		}
+		await yieldToUi();
 	}
 
-	const df = buildDocFrequencies(contents);
+	const df = await log.time('index', 'computing term frequencies', () => buildDocFrequenciesAsync(contents, yieldEvery(10)));
 	return {
 		index: { version: 1, model: embedder.id, notes, docCount: df.docCount, docFreq: df.docFreq },
 		stats,

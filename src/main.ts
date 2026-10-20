@@ -3,7 +3,12 @@ import { CliVaultGateway, type VaultGateway } from './cli/gateway';
 import { DEFAULT_BINARY, ExecFileRunner } from './cli/runner';
 import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
+import { FallbackEmbeddingProvider } from './embeddings/fallback';
+import { spawnEmbeddingWorker } from './embeddings/spawn-worker';
 import { TransformersEmbeddingProvider } from './embeddings/transformers';
+import { WorkerEmbeddingProvider } from './embeddings/worker-provider';
+import { log } from './log';
+import { startStallMonitor } from './stall-monitor';
 import type { EmbeddingProvider } from './embeddings/provider';
 import { emptyIndex, loadIndex, saveIndex, type IndexData, type IndexStorage } from './index/store';
 import { refreshIndexEntry, syncIndex } from './index/sync';
@@ -15,6 +20,8 @@ export default class Tagafinity extends Plugin {
 	settings: TagafinitySettings = { ...DEFAULT_SETTINGS };
 	index: IndexData = emptyIndex(DEFAULT_SETTINGS.embeddingModel);
 	private embedder: EmbeddingProvider | null = null;
+	private embedderUsesWorker = true;
+	private stopStallMonitor: (() => void) | null = null;
 	private syncing: Promise<void> | null = null;
 
 	async onload() {
@@ -59,6 +66,12 @@ export default class Tagafinity extends Plugin {
 			callback: () => void this.undoLastChange(),
 		});
 
+		this.addCommand({
+			id: 'copy-debug-log',
+			name: 'Copy debug log',
+			callback: () => void this.copyDebugLog(),
+		});
+
 		this.addSettingTab(new TagafinitySettingTab(this.app, this));
 
 		if (this.settings.syncOnStartup) {
@@ -67,18 +80,41 @@ export default class Tagafinity extends Plugin {
 	}
 
 	onunload() {
+		this.stopStallMonitor?.();
+		this.stopStallMonitor = null;
 		this.embedder?.dispose?.();
 		this.embedder = null;
 	}
 
+	/** Applies the debug setting: turns logging and main-thread stall reporting on or off. */
+	private applyDebugSetting(): void {
+		log.setEnabled(this.settings.debugLogging);
+		this.stopStallMonitor?.();
+		this.stopStallMonitor = this.settings.debugLogging ? startStallMonitor(log) : null;
+		log.info('plugin', `debug logging enabled (worker embeddings: ${this.settings.useEmbeddingWorker})`);
+	}
+
+	async copyDebugLog(): Promise<void> {
+		const lines = log.history();
+		if (lines.length === 0) {
+			new Notice('The debug log is empty. Turn on debug logging in the plugin settings and try again.');
+			return;
+		}
+		await navigator.clipboard.writeText(lines.join('\n'));
+		new Notice(`Copied ${lines.length} log lines.`);
+	}
+
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.applyDebugSetting();
 		this.index = await loadIndex(this.indexStorage(), this.settings.embeddingModel);
+		log.info('plugin', `loaded index: ${Object.keys(this.index.notes).length} notes`);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		if (this.embedder && this.embedder.id !== this.settings.embeddingModel) {
+		if (log.isEnabled() !== this.settings.debugLogging) this.applyDebugSetting();
+		if (this.embedder && (this.embedder.id !== this.settings.embeddingModel || this.embedderUsesWorker !== this.settings.useEmbeddingWorker)) {
 			this.embedder.dispose?.();
 			this.embedder = null;
 		}
@@ -120,7 +156,14 @@ export default class Tagafinity extends Plugin {
 	}
 
 	get embeddingProvider(): EmbeddingProvider {
-		this.embedder ??= new TransformersEmbeddingProvider(this.settings.embeddingModel);
+		if (!this.embedder) {
+			const model = this.settings.embeddingModel;
+			const mainThread = () => new TransformersEmbeddingProvider(model);
+			this.embedderUsesWorker = this.settings.useEmbeddingWorker;
+			this.embedder = this.embedderUsesWorker
+				? new FallbackEmbeddingProvider(new WorkerEmbeddingProvider(model, () => spawnEmbeddingWorker(__EMBEDDING_WORKER_SOURCE__)), mainThread)
+				: mainThread();
+		}
 		return this.embedder;
 	}
 
@@ -144,7 +187,7 @@ export default class Tagafinity extends Plugin {
 	/** Builds or refreshes the index. Concurrent calls share one run. */
 	updateIndex(quiet = false): Promise<void> {
 		this.syncing ??= (async () => {
-			console.debug(`[tagafinity] index update started (${quiet ? 'background' : 'requested'})`);
+			log.info('index', `update started (${quiet ? 'background' : 'requested'})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
 			try {
 				const { index, stats } = await syncIndex({
@@ -159,13 +202,14 @@ export default class Tagafinity extends Plugin {
 				});
 				this.index = index;
 				await saveIndex(this.indexStorage(), index);
-				console.debug(`[tagafinity] index update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
+				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
 				if (!quiet) {
 					new Notice(`Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`);
 				}
 			} catch (error) {
 				notice?.hide();
+				log.info('index', `update failed: ${error instanceof Error ? error.message : String(error)}`);
 				new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);
 			} finally {
 				this.syncing = null;
@@ -178,6 +222,7 @@ export default class Tagafinity extends Plugin {
 	async ensureIndex(): Promise<boolean> {
 		if (Object.keys(this.index.notes).length === 0) {
 			if (this.syncing) new Notice('Waiting for the index update that is already running…');
+			log.info('index', `index is empty; ${this.syncing ? 'joining the running update' : 'starting an update'}`);
 			await this.updateIndex();
 		}
 		return Object.keys(this.index.notes).length > 0;

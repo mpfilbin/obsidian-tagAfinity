@@ -30,6 +30,11 @@ Writes are verified by reading each note back; if the CLI did not store exactly 
 - Very large notes exceed the command-line length limit (about 30,000 characters on Windows, 120,000 elsewhere) and are skipped the same way.
 - Line endings of rewritten notes are normalised to `\n`.
 
+## Troubleshooting
+
+- **Debug logging** (plugin settings → Troubleshooting) writes timestamped lines to the developer console (Ctrl+Shift+I) for the CLI, indexing, embedding and suggestion flows, and reports any stretch where the plugin blocked the main thread, with what it was doing. "Copy debug log" (settings or command palette) copies the recent lines so they can be shared.
+- **Responsiveness:** the embedding model runs in a background web worker. If the worker cannot start, the plugin falls back to the main thread in small batches and says so in the log; the setting "Compute embeddings in the background" turns the worker off.
+
 ## Development
 
 ```bash

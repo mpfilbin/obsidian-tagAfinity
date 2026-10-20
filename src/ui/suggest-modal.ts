@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import type { ChangePlan } from '../cleanup/plan';
 import { diffLines } from '../diff';
 import { embeddingText } from '../index/sync';
+import { log } from '../log';
 import type Tagafinity from '../main';
 import { suggestTags } from '../suggest/engine';
 import { extractTags } from '../tags/parse';
@@ -34,11 +35,13 @@ export class SuggestTagsModal extends Modal {
 				status.setText('The index is empty. Update the tag index and try again.');
 				return;
 			}
-			this.content = await this.plugin.gateway.readNote(this.path);
+			this.content = await log.time('suggest', `reading ${this.path}`, () => this.plugin.gateway.readNote(this.path));
 			this.currentTags = extractTags(this.content).all;
-			const [queryVector] = await this.plugin.embeddingProvider.embed([embeddingText(this.path, this.content)]);
+			const [queryVector] = await log.time('suggest', 'embedding the note', () =>
+				this.plugin.embeddingProvider.embed([embeddingText(this.path, this.content)]),
+			);
 			const s = this.plugin.settings;
-			const suggestions = suggestTags({
+			const suggestions = await log.time('suggest', 'ranking tags', async () => suggestTags({
 				queryPath: this.path,
 				queryVector: queryVector ?? [],
 				queryContent: this.content,
@@ -51,7 +54,8 @@ export class SuggestTagsModal extends Modal {
 					maxSuggestions: s.maxSuggestions,
 					maxNew: s.allowNewTags ? s.maxNewTags : 0,
 				},
-			});
+			}));
+			log.info('suggest', `${suggestions.length} suggestions`, { tags: suggestions.map((x) => x.tag) });
 			status.remove();
 			this.render(suggestions);
 		} catch (error) {

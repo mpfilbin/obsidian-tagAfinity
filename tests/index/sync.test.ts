@@ -57,6 +57,7 @@ describe('syncIndex', () => {
 				embedder: new CountingEmbedder(),
 				index: emptyIndex('fake'),
 				batchSize: 1,
+				checkpointEvery: 1,
 				onCheckpoint: (index) => void checkpoints.push(Object.keys(index.notes).length),
 			});
 			expect(checkpoints).toEqual([1, 2, 3]);
@@ -73,11 +74,43 @@ describe('syncIndex', () => {
 				embedder: new CountingEmbedder(),
 				index: first.index,
 				batchSize: 1,
+				checkpointEvery: 1,
 				onCheckpoint: (index) => {
 					firstCheckpoint ||= Object.keys(index.notes).length;
 				},
 			});
 			expect(firstCheckpoint).toBe(2);
+		});
+	});
+
+	describe('when checkpoints are throttled', () => {
+		it('saves only every nth batch', async () => {
+			const checkpoints: number[] = [];
+			await syncIndex({
+				gateway: new FakeGateway({ 'a.md': 'one', 'b.md': 'two', 'c.md': 'three', 'd.md': 'four' }),
+				embedder: new CountingEmbedder(),
+				index: emptyIndex('fake'),
+				batchSize: 1,
+				checkpointEvery: 2,
+				onCheckpoint: (index) => void checkpoints.push(Object.keys(index.notes).length),
+			});
+			expect(checkpoints).toEqual([2, 4]);
+		});
+	});
+
+	describe('when the embedder prefers a batch size', () => {
+		it('uses it', async () => {
+			const sizes: number[] = [];
+			const embedder: EmbeddingProvider = {
+				id: 'fake',
+				batchSize: 2,
+				embed: (texts) => {
+					sizes.push(texts.length);
+					return Promise.resolve(texts.map(() => [1, 0]));
+				},
+			};
+			await syncIndex({ gateway: new FakeGateway({ 'a.md': 'one', 'b.md': 'two', 'c.md': 'three' }), embedder, index: emptyIndex('fake') });
+			expect(sizes.filter((n) => n > 1)).toEqual([2]);
 		});
 	});
 

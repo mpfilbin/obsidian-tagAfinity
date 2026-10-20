@@ -2,7 +2,9 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import { planTagChange } from '../cleanup/plan';
 import type Tagafinity from '../main';
 import { renameMapper, removeMapper, type TagMapper } from '../tags/transform';
-import { buildTaxonomy, notesForTag, type TagNode, type Taxonomy } from '../taxonomy/build';
+import { log } from '../log';
+import { buildTaxonomyAsync, notesForTag, type TagNode, type Taxonomy } from '../taxonomy/build';
+import { yieldEvery } from '../yield';
 import { PreviewModal } from './preview-modal';
 
 type Tab = 'merge' | 'nest' | 'prune' | 'tree';
@@ -15,7 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export class CleanupModal extends Modal {
-	private taxonomy: Taxonomy;
+	private taxonomy: Taxonomy | null = null;
 	private tab: Tab = 'merge';
 	private body: HTMLElement | null = null;
 
@@ -24,17 +26,20 @@ export class CleanupModal extends Modal {
 		private readonly plugin: Tagafinity,
 	) {
 		super(app);
-		this.taxonomy = buildTaxonomy(plugin.index);
+	}
+
+	/** Builds the taxonomy in slices so Obsidian stays responsive while the tag graph is analysed. */
+	private async loadTaxonomy(): Promise<Taxonomy> {
+		return log.time('cleanup', 'analysing tags', () => buildTaxonomyAsync(this.plugin.index, yieldEvery(5)), {
+			notes: Object.keys(this.plugin.index.notes).length,
+		});
 	}
 
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.addClass('tagafinity-cleanup');
 		contentEl.createEl('h2', { text: 'Tag cleanup' });
-		contentEl.createEl('p', {
-			cls: 'setting-item-description',
-			text: `${this.taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. Based on the last index update; changes are always previewed before they are written.`,
-		});
+		const summary = contentEl.createEl('p', { cls: 'setting-item-description', text: 'Analysing tags…' });
 
 		const nav = contentEl.createDiv({ cls: 'tagafinity-tabs' });
 		for (const tab of TABS) {
@@ -47,12 +52,18 @@ export class CleanupModal extends Modal {
 			});
 		}
 		this.body = contentEl.createDiv({ cls: 'tagafinity-tab-body' });
-		this.renderTab();
+		void this.loadTaxonomy().then((taxonomy) => {
+			this.taxonomy = taxonomy;
+			summary.setText(
+				`${taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. Based on the last index update; changes are always previewed before they are written.`,
+			);
+			this.renderTab();
+		});
 	}
 
 	private renderTab(): void {
 		const body = this.body;
-		if (!body) return;
+		if (!body || !this.taxonomy) return;
 		body.empty();
 		switch (this.tab) {
 			case 'merge':
@@ -67,11 +78,11 @@ export class CleanupModal extends Modal {
 	}
 
 	private renderMerge(body: HTMLElement): void {
-		if (this.taxonomy.mergeCandidates.length === 0) {
+		if (this.taxonomy!.mergeCandidates.length === 0) {
 			body.createEl('p', { text: 'No duplicate or overlapping tags found.' });
 			return;
 		}
-		for (const candidate of this.taxonomy.mergeCandidates.slice(0, 50)) {
+		for (const candidate of this.taxonomy!.mergeCandidates.slice(0, 50)) {
 			new Setting(body)
 				.setName(`#${candidate.from} → #${candidate.into}`)
 				.setDesc(candidate.reasons.join('; '))
@@ -83,11 +94,11 @@ export class CleanupModal extends Modal {
 	}
 
 	private renderNest(body: HTMLElement): void {
-		if (this.taxonomy.parentCandidates.length === 0) {
+		if (this.taxonomy!.parentCandidates.length === 0) {
 			body.createEl('p', { text: 'No nesting opportunities found.' });
 			return;
 		}
-		for (const candidate of this.taxonomy.parentCandidates.slice(0, 50)) {
+		for (const candidate of this.taxonomy!.parentCandidates.slice(0, 50)) {
 			new Setting(body)
 				.setName(`#${candidate.tag} → #${candidate.proposed}`)
 				.setDesc(`${Math.round(candidate.containment * 100)}% of notes tagged #${candidate.tag} are also tagged #${candidate.parent}`)
@@ -96,11 +107,11 @@ export class CleanupModal extends Modal {
 	}
 
 	private renderPrune(body: HTMLElement): void {
-		if (this.taxonomy.pruneCandidates.length === 0) {
+		if (this.taxonomy!.pruneCandidates.length === 0) {
 			body.createEl('p', { text: 'No rarely used tags found.' });
 			return;
 		}
-		for (const candidate of this.taxonomy.pruneCandidates.slice(0, 100)) {
+		for (const candidate of this.taxonomy!.pruneCandidates.slice(0, 100)) {
 			new Setting(body)
 				.setName(`#${candidate.tag}`)
 				.setDesc(`Used in ${candidate.notes.map((p) => p.replace(/\.md$/i, '')).join(', ')}`)
@@ -118,7 +129,7 @@ export class CleanupModal extends Modal {
 				if (node.children.length > 0) render(node.children, item);
 			}
 		};
-		render(this.taxonomy.tree, body);
+		render(this.taxonomy!.tree, body);
 	}
 
 	private async preview(description: string, tag: string, mapper: TagMapper): Promise<void> {
@@ -126,15 +137,17 @@ export class CleanupModal extends Modal {
 			const gateway = this.plugin.gateway;
 			// Union of the (possibly stale) index and what Obsidian reports now, so edits since the last update are not missed.
 			const live = await gateway.notesWithTag(tag).catch(() => [] as string[]);
-			const paths = [...new Set([...notesForTag(this.taxonomy.stats, tag), ...live])];
+			const paths = [...new Set([...notesForTag(this.taxonomy!.stats, tag), ...live])];
 			const plan = await planTagChange(description, paths, gateway, mapper);
 			if (plan.files.length === 0) {
 				new Notice('No notes would change. The index may be out of date, so update it and try again.');
 				return;
 			}
 			new PreviewModal(this.app, this.plugin, plan, () => {
-				this.taxonomy = buildTaxonomy(this.plugin.index);
-				this.renderTab();
+				void this.loadTaxonomy().then((taxonomy) => {
+					this.taxonomy = taxonomy;
+					this.renderTab();
+				});
 			}).open();
 		} catch (error) {
 			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);

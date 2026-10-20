@@ -1,3 +1,4 @@
+import { log } from '../log';
 import { CliError, type CommandRunner } from './runner';
 
 /** Everything the plugin needs from the vault. All access goes through the Obsidian CLI. */
@@ -42,13 +43,20 @@ export class CliVaultGateway implements VaultGateway {
 		const vault = this.options.vaultName ? [`vault=${this.options.vaultName}`] : [];
 		const delay = this.options.retryDelayMs ?? 400;
 		for (let attempt = 1; ; attempt++) {
+			const started = performance.now();
 			try {
 				const output = await this.runner.run([...vault, command, ...args]);
+				const ms = Math.round(performance.now() - started);
+				// Reads happen hundreds of times during indexing; only report the slow ones.
+				if (command !== 'read' || ms > 1000) {
+					log.info('cli', `${command} ${describeArgs(args)} -> ${output.length} chars in ${ms} ms${attempt > 1 ? ` (attempt ${attempt})` : ''}`);
+				}
 				// The CLI reports some failures on stdout with a success exit code.
 				if (/^Error:/i.test(output.trimStart())) throw new CliError(output.trim());
 				return output;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
+				log.info('cli', `${command} ${describeArgs(args)} failed after ${Math.round(performance.now() - started)} ms (attempt ${attempt}): ${message}`);
 				// The app occasionally cannot be reached for a moment, e.g. when commands overlap.
 				if (attempt < MAX_ATTEMPTS && /unable to find obsidian/i.test(message)) {
 					await new Promise((resolve) => setTimeout(resolve, delay * attempt));
@@ -94,6 +102,11 @@ export class CliVaultGateway implements VaultGateway {
 			.map((line) => line.trim())
 			.filter((line) => line.toLowerCase().endsWith('.md'));
 	}
+}
+
+/** Arguments for logging: note content is summarized, never printed. */
+function describeArgs(args: string[]): string {
+	return args.map((arg) => (arg.startsWith('content=') ? `content=<${arg.length - 8} chars>` : arg)).join(' ');
 }
 
 /** The CLI takes content on the command line, where newlines and tabs are written as escape sequences. */

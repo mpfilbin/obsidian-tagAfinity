@@ -17,6 +17,9 @@ export interface TagafinitySettings {
 	excludePatterns: string;
 	/** How many CLI processes run at once while indexing. */
 	cliConcurrency: number;
+	/** Run embedding inference in a background worker so Obsidian stays responsive. */
+	useEmbeddingWorker: boolean;
+	debugLogging: boolean;
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
@@ -32,6 +35,8 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	syncOnStartup: false,
 	excludePatterns: '*.excalidraw.md',
 	cliConcurrency: 1,
+	useEmbeddingWorker: true,
+	debugLogging: false,
 };
 
 export class TagafinitySettingTab extends PluginSettingTab {
@@ -112,6 +117,16 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Compute embeddings in the background')
+			.setDesc('Runs the model in a web worker so Obsidian stays responsive. Turn off only if indexing fails with the worker enabled.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.useEmbeddingWorker).onChange(async (value) => {
+					this.plugin.settings.useEmbeddingWorker = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
 			.setName('Update index on startup')
 			.setDesc('Re-embed changed notes in the background when Obsidian starts.')
 			.addToggle((toggle) =>
@@ -120,6 +135,28 @@ export class TagafinitySettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+
+		this.displayDebugging();
+	}
+
+	private displayDebugging(): void {
+		const { containerEl } = this;
+		new Setting(containerEl).setName('Troubleshooting').setHeading();
+
+		new Setting(containerEl)
+			.setName('Debug logging')
+			.setDesc('Logs what the plugin is doing, with timings, to the developer console (Ctrl+Shift+I). Also reports when the plugin blocks the main thread.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.debugLogging).onChange(async (value) => {
+					this.plugin.settings.debugLogging = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName('Copy debug log')
+			.setDesc('Copies the most recent log lines to the clipboard so they can be shared.')
+			.addButton((button) => button.setButtonText('Copy').onClick(() => void this.plugin.copyDebugLog()));
 	}
 
 	private slider(
