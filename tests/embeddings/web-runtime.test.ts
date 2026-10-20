@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { importAsWebRuntime } from '../../src/embeddings/web-runtime';
 
+/** Mirrors Node and Electron, where process.release.name is read-only but configurable. */
+function readOnlyRelease(name: string): { release: { name: string } } {
+	const release = {} as { name: string };
+	Object.defineProperty(release, 'name', { value: name, writable: false, configurable: true, enumerable: true });
+	return { release };
+}
+
 describe('importAsWebRuntime', () => {
 	describe('when the host reports itself as node', () => {
 		it('hides that while the module loads', async () => {
@@ -30,7 +37,25 @@ describe('importAsWebRuntime', () => {
 		});
 	});
 
-	describe('when the release name cannot be changed', () => {
+	describe('when the release name is read-only', () => {
+		it('hides it while the module loads', async () => {
+			const proc = readOnlyRelease('node');
+			let seen = '';
+			await importAsWebRuntime(() => {
+				seen = proc.release.name;
+				return Promise.resolve(1);
+			}, proc);
+			expect(seen).toBe('electron-renderer');
+		});
+
+		it('restores it afterwards', async () => {
+			const proc = readOnlyRelease('node');
+			await importAsWebRuntime(() => Promise.resolve(1), proc);
+			expect(proc.release.name).toBe('node');
+		});
+	});
+
+	describe('when the release name cannot be redefined at all', () => {
 		it('still loads the module', async () => {
 			const release = Object.freeze({ name: 'node' });
 			expect(await importAsWebRuntime(() => Promise.resolve('module'), { release })).toBe('module');
