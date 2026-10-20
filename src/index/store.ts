@@ -1,4 +1,7 @@
 export interface IndexedNote {
+	/** Obsidian's modification time and size when the note was indexed; used to detect changes without reading it. */
+	mtime?: number;
+	size?: number;
 	hash: string;
 	vector: number[];
 	tags: string[];
@@ -9,6 +12,8 @@ export interface IndexData {
 	/** Identifies the embedding model so a model change forces a re-embed. */
 	model: string;
 	notes: Record<string, IndexedNote>;
+	/** Epoch milliseconds of the last completed update. */
+	syncedAt?: number;
 	docCount: number;
 	docFreq: Record<string, number>;
 }

@@ -1,7 +1,7 @@
 import type { EmbeddingProvider } from '../embeddings/provider';
 import type { VaultGateway } from '../cli/gateway';
 import { log } from '../log';
-import { buildDocFrequenciesAsync } from '../text/keywords';
+import { buildDocFrequenciesAsync, mergeDocFrequencies } from '../text/keywords';
 import { yieldEvery, yieldToUi } from '../yield';
 import { isExcluded } from './exclude';
 import { proseOf } from '../text/tokenize';
@@ -16,10 +16,23 @@ export interface SyncStats {
 	unchanged: number;
 }
 
+export interface NoteStat {
+	mtime: number;
+	size: number;
+}
+
 export interface SyncOptions {
 	gateway: VaultGateway;
 	embedder: EmbeddingProvider;
 	index: IndexData;
+	/**
+	 * Current modification time and size per note path. Notes whose values match the index are neither read nor
+	 * re-embedded; without this every note is read.
+	 */
+	stats?: Map<string, NoteStat>;
+	/** Ignore recorded modification times and read every note. */
+	full?: boolean;
+	now?: () => number;
 	/** Paths matching any of these patterns are not indexed. */
 	exclude?: string[];
 	concurrency?: number;
@@ -80,27 +93,42 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const listed = await gateway.listNotes();
 	const paths = listed.filter((path) => !isExcluded(path, exclude));
 	log.info('index', `vault has ${listed.length} notes; indexing ${paths.length} (${listed.length - paths.length} excluded)`, { batchSize, concurrency });
-	let read = 0;
-	const contents = await mapPool(
-		paths,
-		concurrency,
-		(path) => gateway.readNote(path),
-		() => {
-			onProgress?.(++read, paths.length, 'reading');
-			if (read % 100 === 0 || read === paths.length) log.info('index', `read ${read}/${paths.length} notes`);
-		},
-	);
-
 	const notes: Record<string, IndexedNote> = {};
 	const stats: SyncStats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
 	const pending: { path: string; hash: string; content: string }[] = [];
 
-	paths.forEach((path, i) => {
+	// Notes whose modification time and size match what was indexed need no reading at all.
+	const toRead: string[] = [];
+	for (const path of paths) {
+		const before = previous.notes[path];
+		const stat = options.stats?.get(path);
+		if (!options.full && before && stat && before.mtime === stat.mtime && before.size === stat.size) {
+			notes[path] = before;
+			stats.unchanged++;
+		} else {
+			toRead.push(path);
+		}
+	}
+	log.info('index', `${toRead.length} of ${paths.length} notes changed since the last update${options.full ? ' (full rebuild)' : ''}`);
+
+	let read = 0;
+	const contents = await mapPool(
+		toRead,
+		concurrency,
+		(path) => gateway.readNote(path),
+		() => {
+			onProgress?.(++read, toRead.length, 'reading');
+			if (read % 100 === 0 || read === toRead.length) log.info('index', `read ${read}/${toRead.length} notes`);
+		},
+	);
+
+	toRead.forEach((path, i) => {
 		const content = contents[i]!;
 		const hash = hashContent(content);
 		const before = previous.notes[path];
+		const stat = options.stats?.get(path);
 		if (before && before.hash === hash) {
-			notes[path] = { ...before, tags: extractTags(content).all };
+			notes[path] = { ...before, tags: extractTags(content).all, mtime: stat?.mtime, size: stat?.size };
 			stats.unchanged++;
 		} else {
 			pending.push({ path, hash, content });
@@ -108,7 +136,8 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 			else stats.added++;
 		}
 	});
-	stats.removed = Object.keys(previous.notes).filter((p) => !paths.includes(p)).length;
+	const pathSet = new Set(paths);
+	stats.removed = Object.keys(previous.notes).filter((p) => !pathSet.has(p)).length;
 
 	log.info('index', `${pending.length} notes need embedding (${stats.unchanged} unchanged)`);
 	let embedded = 0;
@@ -119,7 +148,8 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 			embedder.embed(batch.map((n) => embeddingText(n.path, n.content))),
 		);
 		batch.forEach((n, i) => {
-			notes[n.path] = { hash: n.hash, vector: vectors[i]!, tags: extractTags(n.content).all };
+			const stat = options.stats?.get(n.path);
+			notes[n.path] = { hash: n.hash, vector: vectors[i]!, tags: extractTags(n.content).all, mtime: stat?.mtime, size: stat?.size };
 		});
 		embedded += batch.length;
 		onProgress?.(embedded, pending.length, 'embedding');
@@ -131,15 +161,28 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 		await yieldToUi();
 	}
 
-	const df = await log.time('index', 'computing term frequencies', () => buildDocFrequenciesAsync(contents, yieldEvery(10)));
+	const everythingRead = toRead.length === paths.length;
+	const df =
+		everythingRead || previous.docCount === 0
+			? await log.time('index', 'computing term frequencies', () => buildDocFrequenciesAsync(contents, yieldEvery(10)))
+			: mergeDocFrequencies(previous, contents, paths.length);
 	return {
-		index: { version: 1, model: embedder.id, notes, docCount: df.docCount, docFreq: df.docFreq },
+		index: {
+			version: 1,
+			model: embedder.id,
+			notes,
+			syncedAt: (options.now ?? Date.now)(),
+			docCount: df.docCount,
+			docFreq: df.docFreq,
+		},
 		stats,
 	};
 }
 
 /** After a tag-only edit the embedding is still valid; refresh just the hash and tags. */
-export function refreshIndexEntry(index: IndexData, path: string, content: string): void {
+export function refreshIndexEntry(index: IndexData, path: string, content: string, stat?: NoteStat): void {
 	const entry = index.notes[path];
-	if (entry) index.notes[path] = { ...entry, hash: hashContent(content), tags: extractTags(content).all };
+	if (entry) {
+		index.notes[path] = { ...entry, hash: hashContent(content), tags: extractTags(content).all, mtime: stat?.mtime ?? entry.mtime, size: stat?.size ?? entry.size };
+	}
 }

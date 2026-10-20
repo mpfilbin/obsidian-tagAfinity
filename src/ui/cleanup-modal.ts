@@ -55,7 +55,7 @@ export class CleanupModal extends Modal {
 		void this.loadTaxonomy().then((taxonomy) => {
 			this.taxonomy = taxonomy;
 			summary.setText(
-				`${taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. Based on the last index update; changes are always previewed before they are written.`,
+				`${taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. ${this.plugin.describeIndex()} Changes are always previewed before they are written.`,
 			);
 			this.renderTab();
 		});

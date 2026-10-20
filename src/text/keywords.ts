@@ -20,6 +20,21 @@ function finishDocFrequencies(counts: Map<string, number>, docCount: number): Do
 	return { docCount, docFreq };
 }
 
+/**
+ * Folds newly read notes into existing term frequencies without re-reading the rest of the vault. Approximate:
+ * a modified note's old terms stay counted and deleted notes are not subtracted, which is harmless because these
+ * counts only rank keywords for new-tag suggestions. A full rebuild makes them exact again.
+ */
+export function mergeDocFrequencies(previous: DocFrequencies, contents: string[], docCount: number): DocFrequencies {
+	const fresh = new Map<string, number>();
+	for (const content of contents) countTerms(fresh, content);
+	const docFreq = { ...previous.docFreq };
+	for (const [term, count] of fresh) {
+		if (docFreq[term] !== undefined || count >= 2) docFreq[term] = (docFreq[term] ?? 0) + count;
+	}
+	return { docCount, docFreq };
+}
+
 export function buildDocFrequencies(contents: string[]): DocFrequencies {
 	const counts = new Map<string, number>();
 	for (const content of contents) countTerms(counts, content);

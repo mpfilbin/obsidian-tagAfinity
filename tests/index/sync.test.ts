@@ -149,6 +149,129 @@ describe('syncIndex', () => {
 	});
 });
 
+const stat = (entries: Record<string, [number, number]>) => new Map(Object.entries(entries).map(([p, [mtime, size]]) => [p, { mtime, size }]));
+
+describe('syncIndex with modification times', () => {
+	const first = async (gateway: FakeGateway, stats: ReturnType<typeof stat>) =>
+		syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), stats, now: () => 1000 });
+
+	describe('when a note is unchanged since the last sync', () => {
+		it('does not read it again', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one #x', 'b.md': 'two' });
+			const stats = stat({ 'a.md': [1, 6], 'b.md': [1, 3] });
+			const { index } = await first(gateway, stats);
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(gateway.reads).toEqual([]);
+		});
+
+		it('keeps its tags', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one #x' });
+			const stats = stat({ 'a.md': [1, 6] });
+			const { index } = await first(gateway, stats);
+			const second = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(second.index.notes['a.md']!.tags).toEqual(['x']);
+		});
+
+		it('counts it as unchanged', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one' });
+			const stats = stat({ 'a.md': [1, 3] });
+			const { index } = await first(gateway, stats);
+			expect((await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats })).stats.unchanged).toBe(1);
+		});
+	});
+
+	describe('when a note was modified', () => {
+		it('reads and re-embeds only that note', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'b.md': 'two' });
+			const { index } = await first(gateway, stat({ 'a.md': [1, 3], 'b.md': [1, 3] }));
+			gateway.files['b.md'] = 'two changed';
+			gateway.reads = [];
+			const embedder = new CountingEmbedder();
+			await syncIndex({ gateway, embedder, index, stats: stat({ 'a.md': [1, 3], 'b.md': [2, 11] }) });
+			expect([gateway.reads, embedder.embedded]).toEqual([['b.md'], 1]);
+		});
+	});
+
+	describe('when the modification time changed but the content did not', () => {
+		it('does not re-embed and records the new time', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one' });
+			const { index } = await first(gateway, stat({ 'a.md': [1, 3] }));
+			const embedder = new CountingEmbedder();
+			const second = await syncIndex({ gateway, embedder, index, stats: stat({ 'a.md': [5, 3] }) });
+			expect([embedder.embedded, second.index.notes['a.md']!.mtime]).toEqual([0, 5]);
+		});
+	});
+
+	describe('when a note is new', () => {
+		it('reads and embeds it', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one' });
+			const { index } = await first(gateway, stat({ 'a.md': [1, 3] }));
+			gateway.files['b.md'] = 'brand new';
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: stat({ 'a.md': [1, 3], 'b.md': [2, 9] }) });
+			expect(gateway.reads).toEqual(['b.md']);
+		});
+	});
+
+	describe('when a note was deleted', () => {
+		it('removes it without reading anything', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'b.md': 'two' });
+			const { index } = await first(gateway, stat({ 'a.md': [1, 3], 'b.md': [1, 3] }));
+			delete gateway.files['b.md'];
+			gateway.reads = [];
+			const second = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: stat({ 'a.md': [1, 3] }) });
+			expect([Object.keys(second.index.notes), gateway.reads]).toEqual([['a.md'], []]);
+		});
+	});
+
+	describe('when a full rebuild is requested', () => {
+		it('reads every note even if nothing changed', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'b.md': 'two' });
+			const stats = stat({ 'a.md': [1, 3], 'b.md': [1, 3] });
+			const { index } = await first(gateway, stats);
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats, full: true });
+			expect(gateway.reads).toHaveLength(2);
+		});
+	});
+
+	describe('when no modification times are available', () => {
+		it('reads every note', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one' });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake') });
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index });
+			expect(gateway.reads).toEqual(['a.md']);
+		});
+	});
+
+	describe('when the sync finishes', () => {
+		it('records when it happened', async () => {
+			const { index } = await first(new FakeGateway({ 'a.md': 'one' }), stat({ 'a.md': [1, 3] }));
+			expect(index.syncedAt).toBe(1000);
+		});
+	});
+
+	describe('term frequencies', () => {
+		it('are kept when no note needed reading', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'sourdough starter', 'b.md': 'sourdough starter' });
+			const stats = stat({ 'a.md': [1, 17], 'b.md': [1, 17] });
+			const { index } = await first(gateway, stats);
+			const second = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(second.index.docFreq).toEqual(index.docFreq);
+		});
+
+		it('count the vault size of the new sync', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one', 'b.md': 'two' });
+			const { index } = await first(gateway, stat({ 'a.md': [1, 3], 'b.md': [1, 3] }));
+			gateway.files['c.md'] = 'three';
+			const second = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: stat({ 'a.md': [1, 3], 'b.md': [1, 3], 'c.md': [1, 5] }) });
+			expect(second.index.docCount).toBe(3);
+		});
+	});
+});
+
 describe('index serialization', () => {
 	it('round-trips', () => {
 		const index = emptyIndex('m');

@@ -5,11 +5,13 @@ import { normalize } from '../src/vector';
 
 export class FakeGateway implements VaultGateway {
 	writes: string[] = [];
+	reads: string[] = [];
 	constructor(public files: Record<string, string>, private readonly corruptWrites = false) {}
 	listNotes() {
 		return Promise.resolve(Object.keys(this.files));
 	}
 	readNote(path: string) {
+		this.reads.push(path);
 		return Promise.resolve(this.files[path] ?? '');
 	}
 	notesWithTag(tag: string) {

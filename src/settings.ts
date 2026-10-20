@@ -126,9 +126,31 @@ export class TagafinitySettingTab extends PluginSettingTab {
 				}),
 			);
 
+		const status = new Setting(containerEl).setName('Index status').setDesc(this.plugin.describeIndex());
+		status.addButton((button) =>
+			button.setButtonText('Update now').onClick(() => {
+				void this.plugin.updateIndex().then(() => status.setDesc(this.plugin.describeIndex()));
+			}),
+		);
+		status.addExtraButton((button) =>
+			button
+				.setIcon('refresh-cw')
+				.setTooltip('Refresh status')
+				.onClick(() => status.setDesc(this.plugin.describeIndex())),
+		);
+
+		new Setting(containerEl)
+			.setName('Rebuild index from scratch')
+			.setDesc('Reads and embeds every note again. Only needed if suggestions look wrong after a large change.')
+			.addButton((button) =>
+				button.setButtonText('Rebuild').onClick(() => {
+					void this.plugin.updateIndex({ full: true }).then(() => status.setDesc(this.plugin.describeIndex()));
+				}),
+			);
+
 		new Setting(containerEl)
 			.setName('Update index on startup')
-			.setDesc('Re-embed changed notes in the background when Obsidian starts.')
+			.setDesc('Off by default: update the index yourself with the command or the button above. When on, only notes changed since the last update are read.')
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
 					this.plugin.settings.syncOnStartup = value;

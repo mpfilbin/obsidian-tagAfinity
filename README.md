@@ -4,7 +4,7 @@ Suggests tags for the current note based on how its content relates to the rest 
 
 ## How it works
 
-1. **Index** – every note is embedded locally (transformers.js, `all-MiniLM-L6-v2` by default). Only changed notes are re-embedded.
+1. **Index** – every note is embedded locally (transformers.js, `all-MiniLM-L6-v2` by default). The index is updated manually ("Update tag index", or the button in settings); Obsidian's modification times show which notes changed, so an update reads and embeds only those, and does nothing when nothing changed. Settings and "Show tag index status" report when it was last updated and how many notes have changed since. Suggestions keep working while the index is a little behind.
 2. **Suggest** – the notes most similar to the active note vote on their tags. Existing tags are preferred; if too few qualify, new tags are proposed from the note's keywords (TF-IDF against the vault).
 3. **Clean up** – the tag taxonomy is derived from the index: near-duplicate tags (spelling, abbreviations, semantic overlap), tags that could be nested under a broader tag, and rarely used tags. Merge/rename/remove rewrites both frontmatter and inline tags, always with a line-level preview, and can be undone.
 
@@ -13,6 +13,8 @@ Suggests tags for the current note based on how its content relates to the rest 
 - Suggest tags for current note
 - Review tag cleanup
 - Update tag index
+- Rebuild tag index from scratch
+- Show tag index status
 - Undo last tag change
 
 ## Requirements

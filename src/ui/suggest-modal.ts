@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import type { ChangePlan } from '../cleanup/plan';
 import { diffLines } from '../diff';
 import { embeddingText } from '../index/sync';
+import { describeIndexStatus, pendingChanges } from '../index/status';
 import { log } from '../log';
 import type Tagafinity from '../main';
 import { suggestTags } from '../suggest/engine';
@@ -31,10 +32,21 @@ export class SuggestTagsModal extends Modal {
 	private async run(): Promise<void> {
 		const status = this.contentEl.createEl('p', { text: 'Analyzing note…' });
 		try {
-			if (!(await this.plugin.ensureIndex())) {
-				status.setText('The index is empty. Update the tag index and try again.');
+			if (!this.plugin.hasIndex()) {
+				status.setText('The tag index has not been built yet. Building it reads and embeds every note, which can take a few minutes.');
+				new Setting(this.contentEl).addButton((button) =>
+					button
+						.setButtonText('Build index now')
+						.setCta()
+						.onClick(() => {
+							this.contentEl.empty();
+							this.contentEl.createEl('h2', { text: 'Suggested tags' });
+							void this.plugin.updateIndex().then(() => this.run());
+						}),
+				);
 				return;
 			}
+			this.renderStaleness();
 			this.content = await log.time('suggest', `reading ${this.path}`, () => this.plugin.gateway.readNote(this.path));
 			this.currentTags = extractTags(this.content).all;
 			const [queryVector] = await log.time('suggest', 'embedding the note', () =>
@@ -61,6 +73,21 @@ export class SuggestTagsModal extends Modal {
 		} catch (error) {
 			status.setText(error instanceof Error ? error.message : String(error));
 		}
+	}
+
+	/** A non-blocking hint when the vault has changed since the index was built; suggestions still use what exists. */
+	private renderStaleness(): void {
+		const status = this.plugin.indexStatus();
+		if (pendingChanges(status) === 0) return;
+		new Setting(this.contentEl)
+			.setDesc(describeIndexStatus(status, Date.now()))
+			.addButton((button) =>
+				button.setButtonText('Update index').onClick(() => {
+					this.contentEl.empty();
+					this.contentEl.createEl('h2', { text: 'Suggested tags' });
+					void this.plugin.updateIndex().then(() => this.run());
+				}),
+			);
 	}
 
 	private render(suggestions: TagSuggestion[]): void {

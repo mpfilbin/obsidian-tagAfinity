@@ -1,4 +1,4 @@
-import { FileSystemAdapter, Notice, Plugin, normalizePath } from 'obsidian';
+import { FileSystemAdapter, Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { FallbackWriteGateway } from './cli/fallback-gateway';
 import { CliVaultGateway, type VaultGateway } from './cli/gateway';
 import { ObsidianApiWriter } from './cli/obsidian-writer';
@@ -13,7 +13,8 @@ import { log } from './log';
 import { startStallMonitor } from './stall-monitor';
 import type { EmbeddingProvider } from './embeddings/provider';
 import { emptyIndex, loadIndex, saveIndex, type IndexData, type IndexStorage } from './index/store';
-import { refreshIndexEntry, syncIndex } from './index/sync';
+import { computeIndexStatus, describeIndexStatus, pendingChanges, type IndexStatus } from './index/status';
+import { refreshIndexEntry, syncIndex, type NoteStat } from './index/sync';
 import { DEFAULT_SETTINGS, TagafinitySettingTab, type TagafinitySettings } from './settings';
 import { SuggestTagsModal } from './ui/suggest-modal';
 import { CleanupModal } from './ui/cleanup-modal';
@@ -44,9 +45,11 @@ export default class Tagafinity extends Plugin {
 			id: 'review-tag-cleanup',
 			name: 'Review tag cleanup',
 			callback: () => {
-				void this.ensureIndex().then((ok) => {
-					if (ok) new CleanupModal(this.app, this).open();
-				});
+				if (!this.hasIndex()) {
+					new Notice('The tag index has not been built yet. Build it from the plugin settings or the update command first.');
+					return;
+				}
+				new CleanupModal(this.app, this).open();
 			},
 		});
 
@@ -54,6 +57,18 @@ export default class Tagafinity extends Plugin {
 			id: 'update-index',
 			name: 'Update tag index',
 			callback: () => void this.updateIndex(),
+		});
+
+		this.addCommand({
+			id: 'rebuild-index',
+			name: 'Rebuild tag index from scratch',
+			callback: () => void this.updateIndex({ full: true }),
+		});
+
+		this.addCommand({
+			id: 'show-index-status',
+			name: 'Show tag index status',
+			callback: () => new Notice(this.describeIndex(), 8000),
 		});
 
 		this.addCommand({
@@ -76,9 +91,11 @@ export default class Tagafinity extends Plugin {
 
 		this.addSettingTab(new TagafinitySettingTab(this.app, this));
 
-		if (this.settings.syncOnStartup) {
-			this.app.workspace.onLayoutReady(() => void this.updateIndex(true));
-		}
+		this.app.workspace.onLayoutReady(() => {
+			const status = this.indexStatus();
+			log.info('index', describeIndexStatus(status, Date.now()));
+			if (this.settings.syncOnStartup && pendingChanges(status) > 0) void this.updateIndex({ quiet: true });
+		});
 	}
 
 	onunload() {
@@ -187,16 +204,45 @@ export default class Tagafinity extends Plugin {
 		return this.fileStorage('index.json');
 	}
 
-	/** Builds or refreshes the index. Concurrent calls share one run. */
-	updateIndex(quiet = false): Promise<void> {
+	/** Modification time and size of every note, straight from Obsidian: instant, and reads no note content. */
+	private currentStats(): Map<string, NoteStat> {
+		return new Map(this.app.vault.getMarkdownFiles().map((file) => [file.path, { mtime: file.stat.mtime, size: file.stat.size }]));
+	}
+
+	/** How far the index is behind the vault. Cheap enough to call whenever it is needed. */
+	indexStatus(): IndexStatus {
+		return computeIndexStatus(this.index, this.currentStats(), parseExcludePatterns(this.settings.excludePatterns));
+	}
+
+	describeIndex(): string {
+		return describeIndexStatus(this.indexStatus(), Date.now());
+	}
+
+	hasIndex(): boolean {
+		return Object.keys(this.index.notes).length > 0;
+	}
+
+	/**
+	 * Updates the index. Only notes whose modification time or size changed are read and embedded, so an update
+	 * with nothing new does nothing. `full` re-reads every note. Concurrent calls share one run.
+	 */
+	updateIndex(options: { quiet?: boolean; full?: boolean } = {}): Promise<void> {
+		const { quiet = false, full = false } = options;
+		if (!this.syncing && !full && this.hasIndex() && pendingChanges(this.indexStatus()) === 0) {
+			log.info('index', 'update skipped: nothing changed');
+			if (!quiet) new Notice(this.describeIndex());
+			return Promise.resolve();
+		}
 		this.syncing ??= (async () => {
-			log.info('index', `update started (${quiet ? 'background' : 'requested'})`);
+			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
 			try {
 				const { index, stats } = await syncIndex({
 					gateway: this.gateway,
 					embedder: this.embeddingProvider,
 					index: this.index,
+					stats: this.currentStats(),
+					full,
 					exclude: parseExcludePatterns(this.settings.excludePatterns),
 					concurrency: this.settings.cliConcurrency,
 					onCheckpoint: (partial) => saveIndex(this.indexStorage(), partial),
@@ -221,23 +267,15 @@ export default class Tagafinity extends Plugin {
 		return this.syncing;
 	}
 
-	/** Makes sure there is an index to work with, building one on first use. */
-	async ensureIndex(): Promise<boolean> {
-		if (Object.keys(this.index.notes).length === 0) {
-			if (this.syncing) new Notice('Waiting for the index update that is already running…');
-			log.info('index', `index is empty; ${this.syncing ? 'joining the running update' : 'starting an update'}`);
-			await this.updateIndex();
-		}
-		return Object.keys(this.index.notes).length > 0;
-	}
-
 	/** Applies a previewed plan through the CLI, records undo data and keeps the index current. */
 	async applyChange(plan: ChangePlan, onProgress?: (done: number, total: number) => void): Promise<ApplyResult> {
 		const result = await applyPlan(plan, this.gateway, onProgress);
 		if (result.applied.length > 0) {
 			await this.fileStorage('last-change.json').write(JSON.stringify(result.originals));
 			for (const file of plan.files) {
-				if (result.applied.includes(file.path)) refreshIndexEntry(this.index, file.path, file.after);
+				if (!result.applied.includes(file.path)) continue;
+				const note = this.app.vault.getAbstractFileByPath(file.path);
+				refreshIndexEntry(this.index, file.path, file.after, note instanceof TFile ? { mtime: note.stat.mtime, size: note.stat.size } : undefined);
 			}
 			await saveIndex(this.indexStorage(), this.index);
 		}
