@@ -1,4 +1,4 @@
-import { registerOnnxRuntime } from './onnx';
+import { importAsWebRuntime } from './web-runtime';
 import type { EmbeddingProvider } from './provider';
 
 type Extractor = (
@@ -23,8 +23,7 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
 	private load(): Promise<Extractor> {
 		this.extractor ??= (async () => {
 			this.onStatus?.('Loading embedding model…');
-			await registerOnnxRuntime(globalThis as unknown as Record<symbol, unknown>, () => import('onnxruntime-web/webgpu'));
-			const { pipeline, env } = await import('@huggingface/transformers');
+			const { pipeline, env } = await importAsWebRuntime(() => import('@huggingface/transformers'));
 			env.allowLocalModels = false;
 			env.useBrowserCache = true;
 			const extractor = await pipeline('feature-extraction', this.id, { dtype: 'q8' });

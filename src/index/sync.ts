@@ -30,6 +30,9 @@ export interface SyncOptions {
 	onCheckpoint?: (index: IndexData) => void | Promise<void>;
 }
 
+/** Embedded once before any work, purely to make sure the model loads. */
+export const WARM_UP_TEXT = 'warm up';
+
 export function hashContent(content: string): string {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < content.length; i++) {
@@ -64,6 +67,9 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const concurrency = options.concurrency ?? 1;
 	const batchSize = options.batchSize ?? 16;
 	const previous = options.index.model === embedder.id ? options.index : emptyIndex(embedder.id);
+
+	// Fail fast: loading the model is the step most likely to break, and reading every note first wastes minutes.
+	await embedder.embed([WARM_UP_TEXT]);
 
 	const exclude = options.exclude ?? [];
 	const paths = (await gateway.listNotes()).filter((path) => !isExcluded(path, exclude));

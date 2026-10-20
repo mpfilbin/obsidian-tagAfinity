@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { EmbeddingProvider } from '../../src/embeddings/provider';
-import { hashContent, syncIndex } from '../../src/index/sync';
+import { WARM_UP_TEXT, hashContent, syncIndex } from '../../src/index/sync';
 import { emptyIndex, parseIndex, serializeIndex } from '../../src/index/store';
 import { FakeGateway } from '../helpers';
 
@@ -8,7 +8,7 @@ class CountingEmbedder implements EmbeddingProvider {
 	id = 'fake';
 	embedded = 0;
 	embed(texts: string[]) {
-		this.embedded += texts.length;
+		if (texts[0] !== WARM_UP_TEXT) this.embedded += texts.length;
 		return Promise.resolve(texts.map(() => [1, 0]));
 	}
 }
@@ -78,6 +78,21 @@ describe('syncIndex', () => {
 				},
 			});
 			expect(firstCheckpoint).toBe(2);
+		});
+	});
+
+	describe('when the embedder cannot start', () => {
+		it('fails before reading any notes', async () => {
+			const gateway = new FakeGateway({ 'a.md': 'one' });
+			let reads = 0;
+			const original = gateway.readNote.bind(gateway);
+			gateway.readNote = (path: string) => {
+				reads++;
+				return original(path);
+			};
+			const broken: EmbeddingProvider = { id: 'fake', embed: () => Promise.reject(new Error('no model')) };
+			await syncIndex({ gateway, embedder: broken, index: emptyIndex('fake') }).catch(() => undefined);
+			expect(reads).toBe(0);
 		});
 	});
 
