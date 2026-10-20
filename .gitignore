@@ -1,0 +1,6 @@
+node_modules/
+main.js
+SHA256SUMS.txt
+.env
+*.log
+.DS_Store

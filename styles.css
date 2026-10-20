@@ -1,0 +1,41 @@
+.tagafinity-tabs {
+	display: flex;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
+
+.tagafinity-tab-body {
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.tagafinity-tree {
+	margin: 0;
+	padding-left: var(--size-4-4);
+}
+
+.tagafinity-tree-count {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.tagafinity-preview-list {
+	max-height: 50vh;
+	overflow-y: auto;
+}
+
+.tagafinity-diff {
+	font-family: var(--font-monospace);
+	font-size: var(--font-smallest);
+	padding: var(--size-4-2);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.tagafinity-diff-add {
+	background-color: rgba(var(--color-green-rgb), 0.15);
+}
+
+.tagafinity-diff-remove {
+	background-color: rgba(var(--color-red-rgb), 0.15);
+}
