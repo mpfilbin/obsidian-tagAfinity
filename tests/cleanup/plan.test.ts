@@ -63,6 +63,27 @@ describe('applyPlan', () => {
 	});
 });
 
+describe('applyPlan crash safety', () => {
+	it('hands over every original before the first write', async () => {
+		const gateway = new FakeGateway(files());
+		const plan = await planTagChange('r', ['a.md', 'c.md'], gateway, renameMapper('ml', 'x'));
+		let writesWhenCalled = -1;
+		let seen: Record<string, string> = {};
+		await applyPlan(plan, gateway, undefined, async (originals) => {
+			writesWhenCalled = gateway.writes.length;
+			seen = originals;
+		});
+		expect([writesWhenCalled, Object.keys(seen)]).toEqual([0, ['a.md', 'c.md']]);
+	});
+
+	it('does not write anything if saving the originals fails', async () => {
+		const gateway = new FakeGateway(files());
+		const plan = await planTagChange('r', ['a.md'], gateway, renameMapper('ml', 'x'));
+		await applyPlan(plan, gateway, undefined, () => Promise.reject(new Error('disk full'))).catch(() => undefined);
+		expect(gateway.writes).toEqual([]);
+	});
+});
+
 describe('restoreOriginals', () => {
 	it('writes every original back', async () => {
 		const gateway = new FakeGateway({ 'a.md': 'new' });

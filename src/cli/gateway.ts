@@ -29,10 +29,14 @@ export interface CliGatewayOptions {
 	retryDelayMs?: number;
 }
 
-/** Windows limits a whole command line to 32,767 characters; POSIX limits a single argument to 128 KiB. */
 const MAX_ATTEMPTS = 3;
 
-const DEFAULT_MAX_CONTENT = process.platform === 'win32' ? 30_000 : 120_000;
+/**
+ * Longest note, once encoded, that is sent to the CLI. The operating system allows far more (Windows 32,767
+ * characters per command line), but Obsidian's main process has crashed parsing long CLI messages that arrive in
+ * several chunks, so this stays small. Longer notes are written through the Obsidian API instead.
+ */
+const DEFAULT_MAX_CONTENT = 4_000;
 
 /**
  * Wraps the Obsidian CLI (`obsidian <command> key=value ...`).

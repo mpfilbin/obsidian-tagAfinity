@@ -20,6 +20,8 @@ export interface TagafinitySettings {
 	cliConcurrency: number;
 	/** Run embedding inference in a background worker so Obsidian stays responsive. */
 	useEmbeddingWorker: boolean;
+	/** Send note content through the CLI when writing (short notes only). Off: Obsidian's own file API is used. */
+	writeThroughCli: boolean;
 	debugLogging: boolean;
 }
 
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	excludePatterns: '*.excalidraw.md',
 	cliConcurrency: 1,
 	useEmbeddingWorker: true,
+	writeThroughCli: false,
 	debugLogging: false,
 };
 
@@ -141,6 +144,18 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
 					this.plugin.settings.syncOnStartup = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName('Write notes through the CLI')
+			.setDesc(
+				'Off by default. Reading and listing always use the CLI. Writing a note through it sends the whole note as a command and can crash Obsidian on long notes, so notes are written through Obsidian directly. When on, only short notes use the CLI.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.writeThroughCli).onChange(async (value) => {
+					this.plugin.settings.writeThroughCli = value;
 					await this.plugin.saveSettings();
 				}),
 			);

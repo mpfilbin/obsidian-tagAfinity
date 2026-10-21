@@ -28,8 +28,8 @@ Writes are verified by reading each note back; if the CLI did not store exactly 
 
 ### Limitations
 
-- Notes are written back through `obsidian create … overwrite`, whose content argument treats `\n` and `\t` as escapes and has a command-line length limit (about 30,000 characters on Windows, 120,000 elsewhere). Notes the CLI cannot carry faithfully, such as notes containing backslashes (code, LaTeX) or very large notes, are written through Obsidian's own file API instead; the debug log says when that happens.
-- Line endings of rewritten notes are normalised to `\n`.
+- Reading and listing always go through the Obsidian CLI. Writing a note back through it means sending the whole note as a command argument, which has crashed Obsidian's main process on longer notes and cannot carry backslashes or very large notes faithfully, so notes are written through Obsidian's own file API (`Vault.process`). The setting "Write notes through the CLI" switches to CLI-first writes for short notes only (longer ones still use the API).
+- Before a change is applied, the original content of every affected note is saved, so "Undo last tag change" works even if Obsidian stops partway.
 
 ## Troubleshooting
 

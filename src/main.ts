@@ -2,6 +2,7 @@ import { FileSystemAdapter, Notice, Plugin, TFile, normalizePath } from 'obsidia
 import { FallbackWriteGateway } from './cli/fallback-gateway';
 import { CliVaultGateway, type VaultGateway } from './cli/gateway';
 import { ObsidianApiWriter } from './cli/obsidian-writer';
+import { ReadWriteGateway } from './cli/read-write-gateway';
 import { DEFAULT_BINARY, ExecFileRunner } from './cli/runner';
 import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
@@ -164,12 +165,17 @@ export default class Tagafinity extends Plugin {
 		return new CliVaultGateway(runner, { vaultName: this.settings.vaultName || this.app.vault.getName() });
 	}
 
-	/** CLI for everything it can do faithfully; notes it cannot carry (backslashes, very large) are written through the Obsidian API. */
+	/**
+	 * Reads and lists go through the CLI. Writes go through Obsidian's file API, because sending whole notes to the
+	 * CLI can crash Obsidian; the "write through the CLI" setting restores CLI-first writes for short notes.
+	 */
 	get gateway(): VaultGateway {
-		return new FallbackWriteGateway(this.cliGateway, new ObsidianApiWriter(this.app));
+		const writer = new ObsidianApiWriter(this.app);
+		return this.settings.writeThroughCli
+			? new FallbackWriteGateway(this.cliGateway, writer)
+			: new ReadWriteGateway(this.cliGateway, writer);
 	}
 
-	/** Walks through every kind of CLI call the plugin makes, reporting the first one that fails. */
 	async testCli(): Promise<void> {
 		const gateway = this.cliGateway;
 		let step = 'version';
@@ -304,9 +310,11 @@ export default class Tagafinity extends Plugin {
 
 	/** Applies a previewed plan through the CLI, records undo data and keeps the index current. */
 	async applyChange(plan: ChangePlan, onProgress?: (done: number, total: number) => void): Promise<ApplyResult> {
-		const result = await applyPlan(plan, this.gateway, onProgress);
+		const undoStore = this.fileStorage('last-change.json');
+		// Save every original before the first write: if Obsidian dies mid-way, "Undo last tag change" still works.
+		const result = await applyPlan(plan, this.gateway, onProgress, (originals) => undoStore.write(JSON.stringify(originals)));
 		if (result.applied.length > 0) {
-			await this.fileStorage('last-change.json').write(JSON.stringify(result.originals));
+			await undoStore.write(JSON.stringify(result.originals));
 			for (const file of plan.files) {
 				if (!result.applied.includes(file.path)) continue;
 				const note = this.app.vault.getAbstractFileByPath(file.path);

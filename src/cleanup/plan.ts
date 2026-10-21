@@ -52,7 +52,10 @@ export async function applyPlan(
 	plan: ChangePlan,
 	gateway: VaultGateway,
 	onProgress?: (done: number, total: number) => void,
+	/** Called with the original content of every note in the plan before the first write, so undo data survives a crash. */
+	beforeApply?: (originals: Record<string, string>) => Promise<void>,
 ): Promise<ApplyResult> {
+	await beforeApply?.(Object.fromEntries(plan.files.map((file) => [file.path, file.before])));
 	const result: ApplyResult = { applied: [], failed: [], originals: {} };
 	let done = 0;
 	for (const file of plan.files) {
