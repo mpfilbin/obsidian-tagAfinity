@@ -8,10 +8,15 @@ Suggests tags for the current note based on how its content relates to the rest 
 2. **Suggest** – the notes most similar to the active note vote on their tags. Existing tags are preferred; if too few qualify, new tags are proposed from the note's keywords (TF-IDF against the vault).
 3. **Clean up** – the tag taxonomy is derived from the index: near-duplicate tags (spelling, abbreviations, semantic overlap), tags that could be nested under a broader tag, and rarely used tags. Merge/rename/remove rewrites both frontmatter and inline tags, always with a line-level preview, and can be undone.
 
+## Tag tree
+
+"Open tag tree" (or the ribbon icon) shows your tags in the right sidebar as a hierarchy. Counts are distinct notes, so a note is counted once under a parent however many of its nested tags it has; hover a count for the breakdown. Tags that exist only as a parent of nested tags are shown in italics. Use the filter box (several words must all match), the sort button (note count or name), and expand/collapse all. Click a tag to list its notes below the tree and click a note to open it (Ctrl/Cmd-click for a new tab). The tree refreshes when the index changes.
+
 ## Commands
 
 - Suggest tags for current note
 - Review tag cleanup
+- Open tag tree
 - Update tag index
 - Rebuild tag index from scratch
 - Show tag index status

@@ -65,3 +65,142 @@
 	justify-content: flex-end;
 	margin-top: var(--size-4-3);
 }
+
+/* Tag tree view */
+.tagafinity-tree-view {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+}
+
+.tagafinity-tree-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.tagafinity-tree-toolbar input[type='search'] {
+	flex: 1;
+	min-width: 0;
+}
+
+.tagafinity-tree-buttons {
+	display: flex;
+}
+
+.tagafinity-tree-body {
+	flex: 1 1 auto;
+	min-height: 120px;
+	overflow-y: auto;
+}
+
+.tagafinity-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: 2px var(--size-4-2) 2px calc(var(--size-4-2) + var(--tagafinity-depth, 0) * var(--size-4-4));
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.tagafinity-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.tagafinity-row.is-selected {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.tagafinity-row.is-container .tagafinity-label {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.tagafinity-chevron {
+	display: inline-flex;
+	flex: 0 0 var(--size-4-4);
+	justify-content: center;
+	color: var(--text-faint);
+}
+
+.tagafinity-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tagafinity-count {
+	flex: 0 0 auto;
+	min-width: 3ch;
+	text-align: right;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
+.tagafinity-bar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 2px;
+	pointer-events: none;
+}
+
+.tagafinity-bar::after {
+	content: '';
+	display: block;
+	width: var(--tagafinity-bar, 0%);
+	height: 100%;
+	background-color: var(--interactive-accent);
+	opacity: 0.35;
+}
+
+.tagafinity-tree-notes {
+	flex: 0 0 auto;
+	max-height: 40%;
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: var(--size-4-2);
+}
+
+.tagafinity-tree-notes.is-empty {
+	display: none;
+}
+
+.tagafinity-notes-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-weight: var(--font-semibold);
+}
+
+.tagafinity-notes-list {
+	overflow-y: auto;
+}
+
+.tagafinity-note {
+	display: flex;
+	flex-direction: column;
+	padding: 2px var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.tagafinity-note:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.tagafinity-note-folder {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.tagafinity-open-tree {
+	margin-left: auto;
+}

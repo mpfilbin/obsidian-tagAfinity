@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
+import { Notice, Plugin, TFile, normalizePath, type WorkspaceLeaf } from 'obsidian';
 import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
 import { FallbackEmbeddingProvider } from './embeddings/fallback';
@@ -17,6 +17,7 @@ import { SuggestTagsModal } from './ui/suggest-modal';
 import { ObsidianVaultGateway } from './vault/obsidian-gateway';
 import type { VaultGateway } from './vault/gateway';
 import { CleanupModal } from './ui/cleanup-modal';
+import { TAG_TREE_VIEW, TagTreeView } from './ui/tag-tree-view';
 
 /** What an index update did, for callers that want to report it. */
 export interface IndexUpdateResult {
@@ -33,6 +34,7 @@ export default class Tagafinity extends Plugin {
 	private syncing: Promise<IndexUpdateResult> | null = null;
 	private progress: IndexProgress | null = null;
 	private readonly progressListeners = new Set<(progress: IndexProgress | null) => void>();
+	private readonly indexListeners = new Set<() => void>();
 
 	async onload() {
 		await this.loadSettings();
@@ -46,6 +48,14 @@ export default class Tagafinity extends Plugin {
 				if (!checking) new SuggestTagsModal(this.app, this, file.path).open();
 				return true;
 			},
+		});
+
+		this.registerView(TAG_TREE_VIEW, (leaf) => new TagTreeView(leaf, this));
+		this.addRibbonIcon('tags', 'Open tag tree', () => void this.openTagTree());
+		this.addCommand({
+			id: 'open-tag-tree',
+			name: 'Open tag tree',
+			callback: () => void this.openTagTree(),
 		});
 
 		this.addCommand({
@@ -195,6 +205,27 @@ export default class Tagafinity extends Plugin {
 		return Object.keys(this.index.notes).length > 0;
 	}
 
+	/** Shows the tag tree in the right sidebar, reusing an open one. */
+	async openTagTree(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(TAG_TREE_VIEW)[0] ?? null;
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false);
+			await leaf?.setViewState({ type: TAG_TREE_VIEW, active: true });
+		}
+		if (leaf) await workspace.revealLeaf(leaf);
+	}
+
+	/** Subscribes to changes of the index contents (an update finished or tags were changed). */
+	onIndexChanged(listener: () => void): () => void {
+		this.indexListeners.add(listener);
+		return () => this.indexListeners.delete(listener);
+	}
+
+	private notifyIndexChanged(): void {
+		for (const listener of this.indexListeners) listener();
+	}
+
 	/** The update in progress, or null when none is running. */
 	get indexProgress(): IndexProgress | null {
 		return this.progress;
@@ -245,6 +276,7 @@ export default class Tagafinity extends Plugin {
 				});
 				this.index = index;
 				await saveIndex(this.indexStorage(), index);
+				this.notifyIndexChanged();
 				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
 				const summary = `Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
@@ -277,6 +309,7 @@ export default class Tagafinity extends Plugin {
 				refreshIndexEntry(this.index, file.path, file.after, note instanceof TFile ? { mtime: note.stat.mtime, size: note.stat.size } : undefined);
 			}
 			await saveIndex(this.indexStorage(), this.index);
+			this.notifyIndexChanged();
 		}
 		return result;
 	}

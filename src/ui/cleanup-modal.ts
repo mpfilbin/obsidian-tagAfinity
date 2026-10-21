@@ -4,17 +4,16 @@ import { pendingChanges } from '../index/status';
 import { log } from '../log';
 import type Tagafinity from '../main';
 import { composeMappers, removeMapper, renameMapper, type TagMapper } from '../tags/transform';
-import { buildTaxonomyAsync, notesForTag, type TagNode, type Taxonomy } from '../taxonomy/build';
+import { buildTaxonomyAsync, notesForTag, type Taxonomy } from '../taxonomy/build';
 import { yieldEvery } from '../yield';
 import { PreviewModal } from './preview-modal';
 
-type Tab = 'merge' | 'nest' | 'prune' | 'tree';
+type Tab = 'merge' | 'nest' | 'prune';
 
 const TABS: { id: Tab; label: string }[] = [
 	{ id: 'merge', label: 'Merge' },
 	{ id: 'nest', label: 'Nest' },
 	{ id: 'prune', label: 'Prune' },
-	{ id: 'tree', label: 'Tree' },
 ];
 
 /** One proposed change to a tag, which can be previewed alone or together with others. */
@@ -64,6 +63,11 @@ export class CleanupModal extends Modal {
 		const summary = contentEl.createEl('p', { cls: 'setting-item-description', text: 'Analysing tags…' });
 
 		const nav = contentEl.createDiv({ cls: 'tagafinity-tabs' });
+		const openTree = nav.createEl('button', { text: 'Open tag tree', cls: 'tagafinity-open-tree' });
+		openTree.addEventListener('click', () => {
+			void this.plugin.openTagTree();
+			this.close();
+		});
 		for (const tab of TABS) {
 			const button = nav.createEl('button', { text: tab.label, cls: tab.id === this.tab ? 'mod-cta' : '' });
 			button.addEventListener('click', () => {
@@ -108,8 +112,6 @@ export class CleanupModal extends Modal {
 					detail: `Used in ${c.notes.map((p) => p.replace(/\.md$/i, '')).join(', ')}`,
 					previewLabel: 'Preview removal',
 				}));
-			case 'tree':
-				return [];
 		}
 	}
 
@@ -117,11 +119,7 @@ export class CleanupModal extends Modal {
 		const body = this.body;
 		if (!body || !this.taxonomy) return;
 		body.empty();
-		if (this.tab === 'tree') {
-			this.renderTree(body, this.taxonomy);
-		} else {
-			this.renderRows(body, this.rowsFor(this.taxonomy, this.tab));
-		}
+		this.renderRows(body, this.rowsFor(this.taxonomy, this.tab));
 		this.renderFooter();
 	}
 
@@ -154,8 +152,7 @@ export class CleanupModal extends Modal {
 		const footer = this.footer;
 		if (!footer) return;
 		footer.empty();
-		const rows = this.taxonomy && this.tab !== 'tree' ? this.rowsFor(this.taxonomy, this.tab) : [];
-		if (this.tab === 'tree') return;
+		const rows = this.taxonomy ? this.rowsFor(this.taxonomy, this.tab) : [];
 
 		footer.createEl('button', { text: 'Select all on this tab' }).addEventListener('click', () => {
 			for (const row of rows) this.selected.set(row.action.key, row.action);
@@ -172,23 +169,6 @@ export class CleanupModal extends Modal {
 		});
 		preview.disabled = count === 0;
 		preview.addEventListener('click', () => void this.preview([...this.selected.values()]));
-	}
-
-	private renderTree(body: HTMLElement, taxonomy: Taxonomy): void {
-		body.createEl('p', {
-			cls: 'setting-item-description',
-			text: 'Your tags as a hierarchy, with the number of notes. This view is read-only.',
-		});
-		const render = (nodes: TagNode[], parent: HTMLElement): void => {
-			const list = parent.createEl('ul', { cls: 'tagafinity-tree' });
-			for (const node of nodes) {
-				const item = list.createEl('li');
-				item.createSpan({ text: `#${node.name}` });
-				item.createSpan({ cls: 'tagafinity-tree-count', text: ` ${node.totalCount}` });
-				if (node.children.length > 0) render(node.children, item);
-			}
-		};
-		render(taxonomy.tree, body);
 	}
 
 	/** Plans one or several changes as a single preview. Nothing is written until the user confirms there. */

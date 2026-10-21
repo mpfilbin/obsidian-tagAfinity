@@ -13,8 +13,12 @@ export interface TagNode {
 	name: string;
 	/** Full path, e.g. "project/alpha". */
 	tag: string;
+	/** Notes tagged with exactly this tag. Zero when the node exists only because nested tags use it. */
 	selfCount: number;
+	/** Distinct notes carrying this tag or any nested one; a note is counted once however many of them it has. */
 	totalCount: number;
+	/** Those distinct notes. */
+	notes: string[];
 	children: TagNode[];
 }
 
@@ -65,7 +69,8 @@ export const DEFAULT_TAXONOMY_OPTIONS: TaxonomyOptions = {
 	pruneMaxCount: 1,
 };
 
-export function collectTagStats(index: IndexData): TagStat[] {
+export function collectTagStats(index: IndexData, options: { centroids?: boolean } = {}): TagStat[] {
+	const withCentroids = options.centroids ?? true;
 	const groups = new Map<string, { casings: Map<string, number>; notes: string[] }>();
 	for (const [path, note] of Object.entries(index.notes)) {
 		for (const tag of note.tags) {
@@ -83,7 +88,7 @@ export function collectTagStats(index: IndexData): TagStat[] {
 				tag: display,
 				count: group.notes.length,
 				notes: group.notes,
-				centroid: centroid(group.notes.map((p) => index.notes[p]!.vector)),
+				centroid: withCentroids ? centroid(group.notes.map((p) => index.notes[p]!.vector)) : [],
 			};
 		})
 		.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
@@ -97,23 +102,29 @@ export function buildTree(stats: TagStat[]): TagNode[] {
 		const key = path.join('/').toLowerCase();
 		const found = lookup.get(key);
 		if (found) return found;
-		const node: TagNode = { name: path[path.length - 1]!, tag: path.join('/'), selfCount: 0, totalCount: 0, children: [] };
+		const node: TagNode = { name: path[path.length - 1]!, tag: path.join('/'), selfCount: 0, totalCount: 0, notes: [], children: [] };
 		lookup.set(key, node);
 		if (path.length === 1) roots.push(node);
 		else ensure(path.slice(0, -1)).children.push(node);
 		return node;
 	};
 
+	const own = new Map<TagNode, string[]>();
 	for (const stat of stats) {
 		const node = ensure(stat.tag.split('/'));
 		node.selfCount = stat.count;
+		own.set(node, stat.notes);
 	}
-	const total = (node: TagNode): number => {
-		node.totalCount = node.selfCount + node.children.reduce((sum, child) => sum + total(child), 0);
+	// A note is counted once under a parent however many of its nested tags the note carries.
+	const gather = (node: TagNode): Set<string> => {
+		const notes = new Set(own.get(node) ?? []);
+		for (const child of node.children) for (const path of gather(child)) notes.add(path);
+		node.notes = [...notes];
+		node.totalCount = notes.size;
 		node.children.sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name));
-		return node.totalCount;
+		return notes;
 	};
-	roots.forEach(total);
+	roots.forEach(gather);
 	return roots.sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name));
 }
 
