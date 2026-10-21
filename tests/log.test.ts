@@ -64,10 +64,21 @@ describe('Logger', () => {
 			expect(lines[lines.length - 1]).toContain('250 ms');
 		});
 
-		it('logs a failure and rethrows it', async () => {
-			const { log, lines } = logger(true);
-			await expect(log.time('embed', 'batch', () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
-			expect(lines[lines.length - 1]).toContain('failed: boom');
+		describe('when timed work fails', () => {
+			const run = async () => {
+				const { log, lines } = logger(true);
+				const error = await log.time('embed', 'batch', () => Promise.reject(new Error('boom'))).catch((e: unknown) => e);
+				return { lines, error };
+			};
+
+			it('rethrows the error', async () => {
+				expect((await run()).error).toEqual(new Error('boom'));
+			});
+
+			it('logs the failure', async () => {
+				const { lines } = await run();
+				expect(lines[lines.length - 1]).toContain('failed: boom');
+			});
 		});
 	});
 
