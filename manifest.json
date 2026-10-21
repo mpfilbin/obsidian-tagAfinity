@@ -1,8 +1,8 @@
 {
 	"id": "tagafinity",
 	"name": "Tagafinity",
-	"version": "0.1.0",
-	"minAppVersion": "1.7.2",
+	"version": "0.2.0",
+	"minAppVersion": "1.12.7",
 	"description": "Suggest and manage tags using semantic similarity between notes.",
 	"author": "Michael Filbin",
 	"authorUrl": "",

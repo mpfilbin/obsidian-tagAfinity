@@ -10,7 +10,30 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === 'production';
 
+// transformers.js ships a Node build that needs native onnxruntime; Obsidian must use the web build.
+const alias = {
+	'@huggingface/transformers': './node_modules/@huggingface/transformers/dist/transformers.web.js',
+};
+
+// The embedding worker is bundled on its own and embedded into main.js as a string, because a plugin is a single
+// file and a Web Worker needs a script of its own. (In watch mode, restart the watcher after editing worker code.)
+const worker = await esbuild.build({
+	entryPoints: ['src/embeddings/worker.ts'],
+	bundle: true,
+	write: false,
+	format: 'iife',
+	platform: 'browser',
+	target: 'es2020',
+	minify: prod,
+	alias,
+	logLevel: 'error',
+});
+const workerSource = worker.outputFiles[0].text;
+
 const context = await esbuild.context({
+	define: {
+		__EMBEDDING_WORKER_SOURCE__: JSON.stringify(workerSource),
+	},
 	banner: {
 		js: banner,
 	},
@@ -32,10 +55,7 @@ const context = await esbuild.context({
 		'@lezer/lr',
 		...builtins,
 	],
-	// The node build of transformers.js needs native onnxruntime; Obsidian's renderer must use the web build.
-	alias: {
-		'@huggingface/transformers': './node_modules/@huggingface/transformers/dist/transformers.web.js',
-	},
+	alias,
 	format: 'cjs',
 	target: 'es2020',
 	logLevel: 'info',

@@ -13,8 +13,12 @@ export interface TagNode {
 	name: string;
 	/** Full path, e.g. "project/alpha". */
 	tag: string;
+	/** Notes tagged with exactly this tag. Zero when the node exists only because nested tags use it. */
 	selfCount: number;
+	/** Distinct notes carrying this tag or any nested one; a note is counted once however many of them it has. */
 	totalCount: number;
+	/** Those distinct notes. */
+	notes: string[];
 	children: TagNode[];
 }
 
@@ -65,7 +69,8 @@ export const DEFAULT_TAXONOMY_OPTIONS: TaxonomyOptions = {
 	pruneMaxCount: 1,
 };
 
-export function collectTagStats(index: IndexData): TagStat[] {
+export function collectTagStats(index: IndexData, options: { centroids?: boolean } = {}): TagStat[] {
+	const withCentroids = options.centroids ?? true;
 	const groups = new Map<string, { casings: Map<string, number>; notes: string[] }>();
 	for (const [path, note] of Object.entries(index.notes)) {
 		for (const tag of note.tags) {
@@ -83,7 +88,7 @@ export function collectTagStats(index: IndexData): TagStat[] {
 				tag: display,
 				count: group.notes.length,
 				notes: group.notes,
-				centroid: centroid(group.notes.map((p) => index.notes[p]!.vector)),
+				centroid: withCentroids ? centroid(group.notes.map((p) => index.notes[p]!.vector)) : [],
 			};
 		})
 		.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
@@ -97,23 +102,29 @@ export function buildTree(stats: TagStat[]): TagNode[] {
 		const key = path.join('/').toLowerCase();
 		const found = lookup.get(key);
 		if (found) return found;
-		const node: TagNode = { name: path[path.length - 1]!, tag: path.join('/'), selfCount: 0, totalCount: 0, children: [] };
+		const node: TagNode = { name: path[path.length - 1]!, tag: path.join('/'), selfCount: 0, totalCount: 0, notes: [], children: [] };
 		lookup.set(key, node);
 		if (path.length === 1) roots.push(node);
 		else ensure(path.slice(0, -1)).children.push(node);
 		return node;
 	};
 
+	const own = new Map<TagNode, string[]>();
 	for (const stat of stats) {
 		const node = ensure(stat.tag.split('/'));
 		node.selfCount = stat.count;
+		own.set(node, stat.notes);
 	}
-	const total = (node: TagNode): number => {
-		node.totalCount = node.selfCount + node.children.reduce((sum, child) => sum + total(child), 0);
+	// A note is counted once under a parent however many of its nested tags the note carries.
+	const gather = (node: TagNode): Set<string> => {
+		const notes = new Set(own.get(node) ?? []);
+		for (const child of node.children) for (const path of gather(child)) notes.add(path);
+		node.notes = [...notes];
+		node.totalCount = notes.size;
 		node.children.sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name));
-		return node.totalCount;
+		return notes;
 	};
-	roots.forEach(total);
+	roots.forEach(gather);
 	return roots.sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name));
 }
 
@@ -123,59 +134,123 @@ function jaccard(a: string[], b: string[]): number {
 	return shared / (a.length + b.length - shared || 1);
 }
 
+function mergeCandidateFor(a: TagStat, b: TagStat, options: TaxonomyOptions): MergeCandidate | null {
+	// a is at least as used as b because stats are sorted by count
+	const reasons: string[] = [];
+	let score = 0;
+
+	if (canonicalKey(a.tag) === canonicalKey(b.tag)) {
+		reasons.push('same spelling apart from case, separators or plural');
+		score = 1;
+	} else {
+		const ratio = levenshteinRatio(a.tag.toLowerCase(), b.tag.toLowerCase());
+		if (ratio >= options.stringThreshold && Math.min(a.tag.length, b.tag.length) >= 4) {
+			reasons.push(`spelled very similarly (${Math.round(ratio * 100)}%)`);
+			score = Math.max(score, ratio);
+		}
+		if (isAbbreviation(a.tag, b.tag) || isAbbreviation(b.tag, a.tag)) {
+			reasons.push('one is an abbreviation of the other');
+			score = Math.max(score, 0.9);
+		}
+		if (a.count >= 2 && b.count >= 2 && a.centroid.length > 0) {
+			const sim = dot(a.centroid, b.centroid);
+			if (sim >= options.semanticThreshold && jaccard(a.notes, b.notes) <= 0.5) {
+				reasons.push(`used on semantically similar notes (${Math.round(sim * 100)}%)`);
+				score = Math.max(score, sim);
+			}
+		}
+	}
+	return reasons.length > 0 ? { from: b.tag, into: a.tag, score, reasons } : null;
+}
+
+const byScore = (x: MergeCandidate, y: MergeCandidate): number => y.score - x.score;
+
 export function findMergeCandidates(stats: TagStat[], options: TaxonomyOptions): MergeCandidate[] {
 	const out: MergeCandidate[] = [];
 	for (let i = 0; i < stats.length; i++) {
 		for (let j = i + 1; j < stats.length; j++) {
-			const a = stats[i]!; // a is at least as used as b because stats are sorted by count
-			const b = stats[j]!;
-			const reasons: string[] = [];
-			let score = 0;
-
-			if (canonicalKey(a.tag) === canonicalKey(b.tag)) {
-				reasons.push('same spelling apart from case, separators or plural');
-				score = 1;
-			} else {
-				const ratio = levenshteinRatio(a.tag.toLowerCase(), b.tag.toLowerCase());
-				if (ratio >= options.stringThreshold && Math.min(a.tag.length, b.tag.length) >= 4) {
-					reasons.push(`spelled very similarly (${Math.round(ratio * 100)}%)`);
-					score = Math.max(score, ratio);
-				}
-				if (isAbbreviation(a.tag, b.tag) || isAbbreviation(b.tag, a.tag)) {
-					reasons.push('one is an abbreviation of the other');
-					score = Math.max(score, 0.9);
-				}
-				if (a.count >= 2 && b.count >= 2 && a.centroid.length > 0) {
-					const sim = dot(a.centroid, b.centroid);
-					if (sim >= options.semanticThreshold && jaccard(a.notes, b.notes) <= 0.5) {
-						reasons.push(`used on semantically similar notes (${Math.round(sim * 100)}%)`);
-						score = Math.max(score, sim);
-					}
-				}
-			}
-			if (reasons.length > 0) out.push({ from: b.tag, into: a.tag, score, reasons });
+			const candidate = mergeCandidateFor(stats[i]!, stats[j]!, options);
+			if (candidate) out.push(candidate);
 		}
 	}
-	return out.sort((x, y) => y.score - x.score);
+	return out.sort(byScore);
 }
+
+export async function findMergeCandidatesAsync(
+	stats: TagStat[],
+	options: TaxonomyOptions,
+	tick: () => Promise<void>,
+): Promise<MergeCandidate[]> {
+	const out: MergeCandidate[] = [];
+	for (let i = 0; i < stats.length; i++) {
+		for (let j = i + 1; j < stats.length; j++) {
+			const candidate = mergeCandidateFor(stats[i]!, stats[j]!, options);
+			if (candidate) out.push(candidate);
+		}
+		await tick();
+	}
+	return out.sort(byScore);
+}
+
+function bestParentFor(child: TagStat, flat: TagStat[], options: TaxonomyOptions): ParentCandidate | null {
+	if (child.count < options.minTagCountForParent) return null;
+	let best: ParentCandidate | null = null;
+	for (const parent of flat) {
+		if (parent === child || parent.count < child.count * 1.5) continue;
+		const parentNotes = new Set(parent.notes);
+		const containment = child.notes.filter((n) => parentNotes.has(n)).length / child.count;
+		if (containment >= options.containmentThreshold && (!best || containment > best.containment)) {
+			best = { tag: child.tag, parent: parent.tag, proposed: `${parent.tag}/${child.tag}`, containment };
+		}
+	}
+	return best;
+}
+
+const byContainment = (a: ParentCandidate, b: ParentCandidate): number => b.containment - a.containment;
 
 export function findParentCandidates(stats: TagStat[], options: TaxonomyOptions): ParentCandidate[] {
 	const flat = stats.filter((s) => !s.tag.includes('/'));
 	const out: ParentCandidate[] = [];
 	for (const child of flat) {
-		if (child.count < options.minTagCountForParent) continue;
-		let best: ParentCandidate | null = null;
-		for (const parent of flat) {
-			if (parent === child || parent.count < child.count * 1.5) continue;
-			const parentNotes = new Set(parent.notes);
-			const containment = child.notes.filter((n) => parentNotes.has(n)).length / child.count;
-			if (containment >= options.containmentThreshold && (!best || containment > best.containment)) {
-				best = { tag: child.tag, parent: parent.tag, proposed: `${parent.tag}/${child.tag}`, containment };
-			}
-		}
+		const best = bestParentFor(child, flat, options);
 		if (best) out.push(best);
 	}
-	return out.sort((a, b) => b.containment - a.containment);
+	return out.sort(byContainment);
+}
+
+export async function findParentCandidatesAsync(
+	stats: TagStat[],
+	options: TaxonomyOptions,
+	tick: () => Promise<void>,
+): Promise<ParentCandidate[]> {
+	const flat = stats.filter((s) => !s.tag.includes('/'));
+	const out: ParentCandidate[] = [];
+	for (const child of flat) {
+		const best = bestParentFor(child, flat, options);
+		if (best) out.push(best);
+		await tick();
+	}
+	return out.sort(byContainment);
+}
+
+/** Same result as buildTaxonomy, but awaits `tick` between units of work so the UI stays responsive. */
+export async function buildTaxonomyAsync(
+	index: IndexData,
+	tick: () => Promise<void>,
+	overrides: Partial<TaxonomyOptions> = {},
+): Promise<Taxonomy> {
+	const options = { ...DEFAULT_TAXONOMY_OPTIONS, ...overrides };
+	const stats = collectTagStats(index);
+	await tick();
+	return {
+		stats,
+		tree: buildTree(stats),
+		mergeCandidates: await findMergeCandidatesAsync(stats, options, tick),
+		parentCandidates: await findParentCandidatesAsync(stats, options, tick),
+		pruneCandidates: stats
+			.filter((s) => s.count <= options.pruneMaxCount)
+			.map((s) => ({ tag: s.tag, count: s.count, notes: s.notes })),
+	};
 }
 
 export function buildTaxonomy(index: IndexData, overrides: Partial<TaxonomyOptions> = {}): Taxonomy {

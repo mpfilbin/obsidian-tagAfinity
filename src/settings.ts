@@ -1,10 +1,9 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, type ButtonComponent } from 'obsidian';
+import { describeProgress, progressFraction, type IndexProgress } from './index/progress';
 import type Tagafinity from './main';
 import { DEFAULT_MODEL } from './embeddings/transformers';
 
 export interface TagafinitySettings {
-	cliPath: string;
-	vaultName: string;
 	embeddingModel: string;
 	neighbors: number;
 	minSimilarity: number;
@@ -13,11 +12,14 @@ export interface TagafinitySettings {
 	allowNewTags: boolean;
 	maxNewTags: number;
 	syncOnStartup: boolean;
+	/** One pattern per line: "*.ext" or a folder path. */
+	excludePatterns: string;
+	/** Run embedding inference in a background worker so Obsidian stays responsive. */
+	useEmbeddingWorker: boolean;
+	debugLogging: boolean;
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
-	cliPath: 'obsidian',
-	vaultName: '',
 	embeddingModel: DEFAULT_MODEL,
 	neighbors: 10,
 	minSimilarity: 0.35,
@@ -26,9 +28,14 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	allowNewTags: true,
 	maxNewTags: 2,
 	syncOnStartup: false,
+	excludePatterns: '*.excalidraw.md',
+	useEmbeddingWorker: true,
+	debugLogging: false,
 };
 
 export class TagafinitySettingTab extends PluginSettingTab {
+	private unsubscribe: (() => void) | null = null;
+
 	constructor(
 		app: App,
 		private readonly plugin: Tagafinity,
@@ -39,28 +46,6 @@ export class TagafinitySettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		new Setting(containerEl).setName('Obsidian CLI').setHeading();
-
-		new Setting(containerEl)
-			.setName('CLI executable')
-			.setDesc('Name or full path of the Obsidian CLI executable.')
-			.addText((text) =>
-				text.setValue(this.plugin.settings.cliPath).onChange(async (value) => {
-					this.plugin.settings.cliPath = value.trim() || DEFAULT_SETTINGS.cliPath;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName('Vault name')
-			.setDesc('Passed to the CLI as the target vault. Leave empty to use the CLI default.')
-			.addText((text) =>
-				text.setValue(this.plugin.settings.vaultName).onChange(async (value) => {
-					this.plugin.settings.vaultName = value.trim();
-					await this.plugin.saveSettings();
-				}),
-			);
 
 		new Setting(containerEl).setName('Suggestions').setHeading();
 
@@ -94,14 +79,114 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Excluded notes')
+			.setDesc('Notes to leave out of the index, one per line. Use *.ext to match a file ending, or a folder path.')
+			.addTextArea((area) =>
+				area.setValue(this.plugin.settings.excludePatterns).onChange(async (value) => {
+					this.plugin.settings.excludePatterns = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName('Compute embeddings in the background')
+			.setDesc('Runs the model in a web worker so Obsidian stays responsive. Turn off only if indexing fails with the worker enabled.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.useEmbeddingWorker).onChange(async (value) => {
+					this.plugin.settings.useEmbeddingWorker = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		this.displayIndexControls();
+
+		new Setting(containerEl)
 			.setName('Update index on startup')
-			.setDesc('Re-embed changed notes in the background when Obsidian starts.')
+			.setDesc('Off by default: update the index yourself with the command or the button above. When on, only notes changed since the last update are read.')
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
 					this.plugin.settings.syncOnStartup = value;
 					await this.plugin.saveSettings();
 				}),
 			);
+
+		this.displayDebugging();
+	}
+
+	/** Index status, with live progress while an update runs and buttons that are disabled meanwhile. */
+	private displayIndexControls(): void {
+		const { containerEl } = this;
+		const status = new Setting(containerEl).setName('Index status');
+		const rebuild = new Setting(containerEl)
+			.setName('Rebuild index from scratch')
+			.setDesc('Reads and embeds every note again. Only needed if suggestions look wrong after a large change.');
+
+		let updateButton: ButtonComponent | undefined;
+		let rebuildButton: ButtonComponent | undefined;
+
+		const render = (progress: IndexProgress | null, summary?: string): void => {
+			status.descEl.empty();
+			if (progress) {
+				status.descEl.createDiv({ text: describeProgress(progress) });
+				const bar = status.descEl.createEl('progress', { cls: 'tagafinity-progress' });
+				bar.max = 1;
+				const fraction = progressFraction(progress);
+				if (fraction !== undefined) bar.value = fraction; // no value attribute means indeterminate
+			} else {
+				status.descEl.createDiv({ text: [summary, this.plugin.describeIndex()].filter(Boolean).join(' ') });
+			}
+			updateButton?.setDisabled(progress !== null);
+			rebuildButton?.setDisabled(progress !== null);
+		};
+
+		const run = (full: boolean): void => {
+			// Quiet: progress and the result are shown right here instead of in notices.
+			void this.plugin.updateIndex({ quiet: true, full }).then((result) => render(this.plugin.indexProgress, result.summary));
+		};
+
+		status.addButton((button) => {
+			updateButton = button;
+			button.setButtonText('Update now').onClick(() => run(false));
+		});
+		status.addExtraButton((button) =>
+			button
+				.setIcon('refresh-cw')
+				.setTooltip('Refresh status')
+				.onClick(() => render(this.plugin.indexProgress)),
+		);
+		rebuild.addButton((button) => {
+			rebuildButton = button;
+			button.setButtonText('Rebuild').onClick(() => run(true));
+		});
+
+		render(this.plugin.indexProgress);
+		this.unsubscribe?.();
+		this.unsubscribe = this.plugin.onIndexProgress((progress) => render(progress));
+	}
+
+	hide(): void {
+		this.unsubscribe?.();
+		this.unsubscribe = null;
+	}
+
+	private displayDebugging(): void {
+		const { containerEl } = this;
+		new Setting(containerEl).setName('Troubleshooting').setHeading();
+
+		new Setting(containerEl)
+			.setName('Debug logging')
+			.setDesc('Logs what the plugin is doing, with timings, to the developer console (Ctrl+Shift+I). Also reports when the plugin blocks the main thread.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.debugLogging).onChange(async (value) => {
+					this.plugin.settings.debugLogging = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName('Copy debug log')
+			.setDesc('Copies the most recent log lines to the clipboard so they can be shared.')
+			.addButton((button) => button.setButtonText('Copy').onClick(() => void this.plugin.copyDebugLog()));
 	}
 
 	private slider(

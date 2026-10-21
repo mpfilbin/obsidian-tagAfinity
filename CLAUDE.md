@@ -121,10 +121,14 @@ formatDate
 
 ## Version Management
 
-Never edit `manifest.json` version directly. Use:
+Never edit the version in `manifest.json`, `package.json` or `versions.json` by hand. Use:
 
 ```bash
-just version-bump         # patch bump (0.1.0 → 0.1.1)
-just version-bump minor   # minor bump (0.1.0 → 0.2.0)
-just version-bump major   # major bump (0.1.0 → 1.0.0)
+just release patch   # 0.1.0 → 0.1.1
+just release minor   # 0.1.0 → 0.2.0
+just release major   # 0.1.0 → 1.0.0
 ```
+
+This runs `scripts/release.sh`, which bumps `package.json`, syncs `manifest.json` and `versions.json` via
+`version-bump.mjs`, refreshes `package-lock.json` and commits. Merging that commit to `master` triggers
+`.github/workflows/release.yml`, which builds and publishes the GitHub release for the version in `manifest.json`.

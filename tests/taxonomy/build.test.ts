@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTaxonomy, buildTree, collectTagStats } from '../../src/taxonomy/build';
+import { buildTaxonomy, buildTaxonomyAsync, buildTree, collectTagStats } from '../../src/taxonomy/build';
 import { indexOf } from '../helpers';
 
 describe('collectTagStats', () => {
@@ -90,5 +90,63 @@ describe('buildTaxonomy', () => {
 			const t = buildTaxonomy(indexOf({ 'a.md': { vector: [1], tags: ['solo'] }, 'b.md': { vector: [1], tags: ['x', 'y'] }, 'c.md': { vector: [1], tags: ['x', 'y'] } }));
 			expect(t.pruneCandidates.map((p) => p.tag)).toEqual(['solo']);
 		});
+	});
+});
+
+describe('buildTaxonomyAsync', () => {
+	const notes = {
+		'a.md': { vector: [1, 0.01], tags: ['machine-learning', 'bread'] },
+		'b.md': { vector: [1, 0.02], tags: ['machine-learning', 'baking'] },
+		'c.md': { vector: [1, 0.03], tags: ['machinelearning', 'bread'] },
+		'd.md': { vector: [1, 0.04], tags: ['ml', 'baking'] },
+	};
+
+	it('produces the same taxonomy as the synchronous version', async () => {
+		const index = indexOf(notes);
+		expect(await buildTaxonomyAsync(index, () => Promise.resolve())).toEqual(buildTaxonomy(index));
+	});
+
+	it('yields while working', async () => {
+		let ticks = 0;
+		await buildTaxonomyAsync(indexOf(notes), () => {
+			ticks++;
+			return Promise.resolve();
+		});
+		expect(ticks).toBeGreaterThan(3);
+	});
+});
+
+describe('buildTree counts', () => {
+	const index = indexOf({
+		'a.md': { vector: [1], tags: ['software/architecture', 'software/design'] },
+		'b.md': { vector: [1], tags: ['software/architecture'] },
+		'c.md': { vector: [1], tags: ['software'] },
+	});
+	const software = () => buildTree(collectTagStats(index)).find((n) => n.tag === 'software')!;
+
+	it('counts a note once even when several nested tags put it under the parent', () => {
+		expect(software().totalCount).toBe(3);
+	});
+
+	it('keeps the number of notes tagged directly', () => {
+		expect(software().selfCount).toBe(1);
+	});
+
+	it('lists the distinct notes under a node', () => {
+		expect(software().notes.slice().sort()).toEqual(['a.md', 'b.md', 'c.md']);
+	});
+
+	describe('when a parent exists only because of its children', () => {
+		it('has no notes of its own', () => {
+			const tree = buildTree(collectTagStats(indexOf({ 'a.md': { vector: [1], tags: ['area/x'] } })));
+			expect(tree[0]!.selfCount).toBe(0);
+		});
+	});
+});
+
+describe('collectTagStats without centroids', () => {
+	it('skips the vector averaging', () => {
+		const stats = collectTagStats(indexOf({ 'a.md': { vector: [1, 0], tags: ['x'] } }), { centroids: false });
+		expect(stats[0]!.centroid).toEqual([]);
 	});
 });

@@ -2,6 +2,8 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import type { ChangePlan } from '../cleanup/plan';
 import { diffLines } from '../diff';
 import { embeddingText } from '../index/sync';
+import { describeIndexStatus, pendingChanges } from '../index/status';
+import { log } from '../log';
 import type Tagafinity from '../main';
 import { suggestTags } from '../suggest/engine';
 import { extractTags } from '../tags/parse';
@@ -30,15 +32,28 @@ export class SuggestTagsModal extends Modal {
 	private async run(): Promise<void> {
 		const status = this.contentEl.createEl('p', { text: 'Analyzing note…' });
 		try {
-			if (!(await this.plugin.ensureIndex())) {
-				status.setText('The index is empty. Update the tag index and try again.');
+			if (!this.plugin.hasIndex()) {
+				status.setText('The tag index has not been built yet. Building it reads and embeds every note, which can take a few minutes.');
+				new Setting(this.contentEl).addButton((button) =>
+					button
+						.setButtonText('Build index now')
+						.setCta()
+						.onClick(() => {
+							this.contentEl.empty();
+							this.contentEl.createEl('h2', { text: 'Suggested tags' });
+							void this.plugin.updateIndex().then(() => this.run());
+						}),
+				);
 				return;
 			}
-			this.content = await this.plugin.gateway.readNote(this.path);
+			this.renderStaleness();
+			this.content = await log.time('suggest', `reading ${this.path}`, () => this.plugin.gateway.readNote(this.path));
 			this.currentTags = extractTags(this.content).all;
-			const [queryVector] = await this.plugin.embeddingProvider.embed([embeddingText(this.path, this.content)]);
+			const [queryVector] = await log.time('suggest', 'embedding the note', () =>
+				this.plugin.embeddingProvider.embed([embeddingText(this.path, this.content)]),
+			);
 			const s = this.plugin.settings;
-			const suggestions = suggestTags({
+			const suggestions = await log.time('suggest', 'ranking tags', async () => suggestTags({
 				queryPath: this.path,
 				queryVector: queryVector ?? [],
 				queryContent: this.content,
@@ -51,12 +66,28 @@ export class SuggestTagsModal extends Modal {
 					maxSuggestions: s.maxSuggestions,
 					maxNew: s.allowNewTags ? s.maxNewTags : 0,
 				},
-			});
+			}));
+			log.info('suggest', `${suggestions.length} suggestions`, { tags: suggestions.map((x) => x.tag) });
 			status.remove();
 			this.render(suggestions);
 		} catch (error) {
 			status.setText(error instanceof Error ? error.message : String(error));
 		}
+	}
+
+	/** A non-blocking hint when the vault has changed since the index was built; suggestions still use what exists. */
+	private renderStaleness(): void {
+		const status = this.plugin.indexStatus();
+		if (pendingChanges(status) === 0) return;
+		new Setting(this.contentEl)
+			.setDesc(describeIndexStatus(status, Date.now()))
+			.addButton((button) =>
+				button.setButtonText('Update index').onClick(() => {
+					this.contentEl.empty();
+					this.contentEl.createEl('h2', { text: 'Suggested tags' });
+					void this.plugin.updateIndex().then(() => this.run());
+				}),
+			);
 	}
 
 	private render(suggestions: TagSuggestion[]): void {

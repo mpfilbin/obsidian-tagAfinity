@@ -1,4 +1,4 @@
-import type { VaultGateway } from '../cli/gateway';
+import type { VaultGateway } from '../vault/gateway';
 import { diffLines, type LineChange } from '../diff';
 import { transformTags, type TagMapper } from '../tags/transform';
 
@@ -30,6 +30,11 @@ export async function planTagChange(
 	return { description, files };
 }
 
+/** The same plan limited to the chosen notes. */
+export function restrictPlan(plan: ChangePlan, paths: Set<string>): ChangePlan {
+	return { ...plan, files: plan.files.filter((file) => paths.has(file.path)) };
+}
+
 export interface ApplyResult {
 	applied: string[];
 	failed: { path: string; reason: string }[];
@@ -40,14 +45,17 @@ export interface ApplyResult {
 const sameText = (a: string, b: string): boolean => a.replace(/\r\n/g, '\n').trimEnd() === b.replace(/\r\n/g, '\n').trimEnd();
 
 /**
- * Writes the plan through the CLI. Each write is verified by reading the note back; on any mismatch the
- * original content is restored, so a misbehaving CLI cannot leave a corrupted note behind.
+ * Writes the plan. Each write is verified by reading the note back; on any mismatch the original content is
+ * restored, so an unexpected write result cannot leave a corrupted note behind.
  */
 export async function applyPlan(
 	plan: ChangePlan,
 	gateway: VaultGateway,
 	onProgress?: (done: number, total: number) => void,
+	/** Called with the original content of every note in the plan before the first write, so undo data survives a crash. */
+	beforeApply?: (originals: Record<string, string>) => Promise<void>,
 ): Promise<ApplyResult> {
+	await beforeApply?.(Object.fromEntries(plan.files.map((file) => [file.path, file.before])));
 	const result: ApplyResult = { applied: [], failed: [], originals: {} };
 	let done = 0;
 	for (const file of plan.files) {

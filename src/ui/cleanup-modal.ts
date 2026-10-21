@@ -1,42 +1,63 @@
-import { App, Modal, Notice, Setting } from 'obsidian';
-import { planTagChange } from '../cleanup/plan';
+import { App, Modal, Setting } from 'obsidian';
+import type { TagAction } from '../cleanup/tag-actions';
+import { log } from '../log';
 import type Tagafinity from '../main';
-import { renameMapper, removeMapper, type TagMapper } from '../tags/transform';
-import { buildTaxonomy, notesForTag, type TagNode, type Taxonomy } from '../taxonomy/build';
-import { PreviewModal } from './preview-modal';
+import { removeMapper, renameMapper } from '../tags/transform';
+import { buildTaxonomyAsync, type Taxonomy } from '../taxonomy/build';
+import { yieldEvery } from '../yield';
+import { previewActions } from './preview-actions';
 
-type Tab = 'merge' | 'nest' | 'prune' | 'tree';
+type Tab = 'merge' | 'nest' | 'prune';
 
 const TABS: { id: Tab; label: string }[] = [
 	{ id: 'merge', label: 'Merge' },
 	{ id: 'nest', label: 'Nest' },
 	{ id: 'prune', label: 'Prune' },
-	{ id: 'tree', label: 'Tree' },
 ];
 
+interface ActionRow {
+	action: TagAction;
+	title: string;
+	detail: string;
+	previewLabel: string;
+	/** The same merge in the opposite direction. */
+	swapped?: TagAction;
+}
+
 export class CleanupModal extends Modal {
-	private taxonomy: Taxonomy;
+	private taxonomy: Taxonomy | null = null;
 	private tab: Tab = 'merge';
 	private body: HTMLElement | null = null;
+	private footer: HTMLElement | null = null;
+	/** Chosen changes by key; kept while switching tabs. */
+	private readonly selected = new Map<string, TagAction>();
 
 	constructor(
 		app: App,
 		private readonly plugin: Tagafinity,
 	) {
 		super(app);
-		this.taxonomy = buildTaxonomy(plugin.index);
+	}
+
+	/** Builds the taxonomy in slices so Obsidian stays responsive while the tag graph is analysed. */
+	private async loadTaxonomy(): Promise<Taxonomy> {
+		return log.time('cleanup', 'analysing tags', () => buildTaxonomyAsync(this.plugin.index, yieldEvery(5)), {
+			notes: Object.keys(this.plugin.index.notes).length,
+		});
 	}
 
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.addClass('tagafinity-cleanup');
 		contentEl.createEl('h2', { text: 'Tag cleanup' });
-		contentEl.createEl('p', {
-			cls: 'setting-item-description',
-			text: `${this.taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. Based on the last index update; changes are always previewed before they are written.`,
-		});
+		const summary = contentEl.createEl('p', { cls: 'setting-item-description', text: 'Analysing tags…' });
 
 		const nav = contentEl.createDiv({ cls: 'tagafinity-tabs' });
+		const openTree = nav.createEl('button', { text: 'Open tag tree', cls: 'tagafinity-open-tree' });
+		openTree.addEventListener('click', () => {
+			void this.plugin.openTagTree();
+			this.close();
+		});
 		for (const tab of TABS) {
 			const button = nav.createEl('button', { text: tab.label, cls: tab.id === this.tab ? 'mod-cta' : '' });
 			button.addEventListener('click', () => {
@@ -47,95 +68,108 @@ export class CleanupModal extends Modal {
 			});
 		}
 		this.body = contentEl.createDiv({ cls: 'tagafinity-tab-body' });
-		this.renderTab();
+		this.footer = contentEl.createDiv({ cls: 'tagafinity-selection-bar' });
+		void this.loadTaxonomy().then((taxonomy) => {
+			this.taxonomy = taxonomy;
+			summary.setText(
+				`${taxonomy.stats.length} tags across ${Object.keys(this.plugin.index.notes).length} notes. ${this.plugin.describeIndex()} Tick the changes you want, then preview them together; nothing is written until you confirm.`,
+			);
+			this.renderTab();
+		});
+	}
+
+	private rowsFor(taxonomy: Taxonomy, tab: Tab): ActionRow[] {
+		switch (tab) {
+			case 'merge':
+				return taxonomy.mergeCandidates.slice(0, 50).map((c) => ({
+					action: { key: `merge:${c.from}>${c.into}`, description: `Merge #${c.from} into #${c.into}`, source: c.from, target: c.into, mapper: renameMapper(c.from, c.into) },
+					title: `#${c.from} → #${c.into}`,
+					detail: c.reasons.join('; '),
+					previewLabel: 'Preview',
+					swapped: { key: `merge:${c.into}>${c.from}`, description: `Merge #${c.into} into #${c.from}`, source: c.into, target: c.from, mapper: renameMapper(c.into, c.from) },
+				}));
+			case 'nest':
+				return taxonomy.parentCandidates.slice(0, 50).map((c) => ({
+					action: { key: `nest:${c.tag}`, description: `Nest #${c.tag} under #${c.parent}`, source: c.tag, target: c.proposed, mapper: renameMapper(c.tag, c.proposed) },
+					title: `#${c.tag} → #${c.proposed}`,
+					detail: `${Math.round(c.containment * 100)}% of notes tagged #${c.tag} are also tagged #${c.parent}`,
+					previewLabel: 'Preview',
+				}));
+			case 'prune':
+				return taxonomy.pruneCandidates.slice(0, 100).map((c) => ({
+					action: { key: `prune:${c.tag}`, description: `Remove #${c.tag}`, source: c.tag, mapper: removeMapper(c.tag) },
+					title: `#${c.tag}`,
+					detail: `Used in ${c.notes.map((p) => p.replace(/\.md$/i, '')).join(', ')}`,
+					previewLabel: 'Preview removal',
+				}));
+		}
 	}
 
 	private renderTab(): void {
 		const body = this.body;
-		if (!body) return;
+		if (!body || !this.taxonomy) return;
 		body.empty();
-		switch (this.tab) {
-			case 'merge':
-				return this.renderMerge(body);
-			case 'nest':
-				return this.renderNest(body);
-			case 'prune':
-				return this.renderPrune(body);
-			case 'tree':
-				return this.renderTree(body);
-		}
+		this.renderRows(body, this.rowsFor(this.taxonomy, this.tab));
+		this.renderFooter();
 	}
 
-	private renderMerge(body: HTMLElement): void {
-		if (this.taxonomy.mergeCandidates.length === 0) {
-			body.createEl('p', { text: 'No duplicate or overlapping tags found.' });
+	private renderRows(body: HTMLElement, rows: ActionRow[]): void {
+		if (rows.length === 0) {
+			body.createEl('p', { text: 'Nothing to suggest here.' });
 			return;
 		}
-		for (const candidate of this.taxonomy.mergeCandidates.slice(0, 50)) {
-			new Setting(body)
-				.setName(`#${candidate.from} → #${candidate.into}`)
-				.setDesc(candidate.reasons.join('; '))
-				.addButton((b) => b.setButtonText('Preview').onClick(() => void this.preview(`Merge #${candidate.from} into #${candidate.into}`, candidate.from, renameMapper(candidate.from, candidate.into))))
-				.addExtraButton((b) =>
-					b.setIcon('arrow-left-right').setTooltip('Swap direction').onClick(() => void this.preview(`Merge #${candidate.into} into #${candidate.from}`, candidate.into, renameMapper(candidate.into, candidate.from))),
+		for (const row of rows) {
+			const setting = new Setting(body).setName(row.title).setDesc(row.detail);
+			setting.addToggle((toggle) =>
+				toggle.setValue(this.selected.has(row.action.key)).onChange((on) => {
+					if (on) this.selected.set(row.action.key, row.action);
+					else this.selected.delete(row.action.key);
+					this.renderFooter();
+				}),
+			);
+			setting.addButton((b) => b.setButtonText(row.previewLabel).onClick(() => void this.preview([row.action])));
+			const swapped = row.swapped;
+			if (swapped) {
+				setting.addExtraButton((b) =>
+					b.setIcon('arrow-left-right').setTooltip('Preview the opposite direction').onClick(() => void this.preview([swapped])),
 				);
-		}
-	}
-
-	private renderNest(body: HTMLElement): void {
-		if (this.taxonomy.parentCandidates.length === 0) {
-			body.createEl('p', { text: 'No nesting opportunities found.' });
-			return;
-		}
-		for (const candidate of this.taxonomy.parentCandidates.slice(0, 50)) {
-			new Setting(body)
-				.setName(`#${candidate.tag} → #${candidate.proposed}`)
-				.setDesc(`${Math.round(candidate.containment * 100)}% of notes tagged #${candidate.tag} are also tagged #${candidate.parent}`)
-				.addButton((b) => b.setButtonText('Preview').onClick(() => void this.preview(`Nest #${candidate.tag} under #${candidate.parent}`, candidate.tag, renameMapper(candidate.tag, candidate.proposed))));
-		}
-	}
-
-	private renderPrune(body: HTMLElement): void {
-		if (this.taxonomy.pruneCandidates.length === 0) {
-			body.createEl('p', { text: 'No rarely used tags found.' });
-			return;
-		}
-		for (const candidate of this.taxonomy.pruneCandidates.slice(0, 100)) {
-			new Setting(body)
-				.setName(`#${candidate.tag}`)
-				.setDesc(`Used in ${candidate.notes.map((p) => p.replace(/\.md$/i, '')).join(', ')}`)
-				.addButton((b) => b.setButtonText('Preview removal').onClick(() => void this.preview(`Remove #${candidate.tag}`, candidate.tag, removeMapper(candidate.tag))));
-		}
-	}
-
-	private renderTree(body: HTMLElement): void {
-		const render = (nodes: TagNode[], parent: HTMLElement): void => {
-			const list = parent.createEl('ul', { cls: 'tagafinity-tree' });
-			for (const node of nodes) {
-				const item = list.createEl('li');
-				item.createSpan({ text: `#${node.name}` });
-				item.createSpan({ cls: 'tagafinity-tree-count', text: ` ${node.totalCount}` });
-				if (node.children.length > 0) render(node.children, item);
 			}
-		};
-		render(this.taxonomy.tree, body);
+		}
 	}
 
-	private async preview(description: string, tag: string, mapper: TagMapper): Promise<void> {
-		try {
-			const paths = notesForTag(this.taxonomy.stats, tag);
-			const plan = await planTagChange(description, paths, this.plugin.gateway, mapper);
-			if (plan.files.length === 0) {
-				new Notice('No notes would change. The index may be out of date, so update it and try again.');
-				return;
-			}
-			new PreviewModal(this.app, this.plugin, plan, () => {
-				this.taxonomy = buildTaxonomy(this.plugin.index);
+	/** Selection controls and the batch preview button; kept below the scrolling list. */
+	private renderFooter(): void {
+		const footer = this.footer;
+		if (!footer) return;
+		footer.empty();
+		const rows = this.taxonomy ? this.rowsFor(this.taxonomy, this.tab) : [];
+
+		footer.createEl('button', { text: 'Select all on this tab' }).addEventListener('click', () => {
+			for (const row of rows) this.selected.set(row.action.key, row.action);
+			this.renderTab();
+		});
+		footer.createEl('button', { text: 'Clear selection' }).addEventListener('click', () => {
+			this.selected.clear();
+			this.renderTab();
+		});
+		const count = this.selected.size;
+		const preview = footer.createEl('button', {
+			text: count === 0 ? 'Preview selected' : `Preview ${count} selected`,
+			cls: 'mod-cta',
+		});
+		preview.disabled = count === 0;
+		preview.addEventListener('click', () => void this.preview([...this.selected.values()]));
+	}
+
+	/** Previews one or several changes as a single combined change. Nothing is written until confirmed there. */
+	private async preview(actions: TagAction[]): Promise<void> {
+		await previewActions(this.app, this.plugin, actions, () => {
+			this.selected.clear();
+			void this.loadTaxonomy().then((fresh) => {
+				this.taxonomy = fresh;
 				this.renderTab();
-			}).open();
-		} catch (error) {
-			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);
-		}
+			});
+		});
 	}
 
 	onClose(): void {

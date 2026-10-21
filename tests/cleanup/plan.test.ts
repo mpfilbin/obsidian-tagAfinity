@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyPlan, planTagChange, restoreOriginals } from '../../src/cleanup/plan';
+import { applyPlan, planTagChange, restoreOriginals, restrictPlan } from '../../src/cleanup/plan';
 import { renameMapper } from '../../src/tags/transform';
 import { FakeGateway } from '../helpers';
 
@@ -63,10 +63,61 @@ describe('applyPlan', () => {
 	});
 });
 
+describe('applyPlan crash safety', () => {
+	it('hands over every original before the first write', async () => {
+		const gateway = new FakeGateway(files());
+		const plan = await planTagChange('r', ['a.md', 'c.md'], gateway, renameMapper('ml', 'x'));
+		let writesWhenCalled = -1;
+		let seen: Record<string, string> = {};
+		await applyPlan(plan, gateway, undefined, async (originals) => {
+			writesWhenCalled = gateway.writes.length;
+			seen = originals;
+		});
+		expect([writesWhenCalled, Object.keys(seen)]).toEqual([0, ['a.md', 'c.md']]);
+	});
+
+	it('does not write anything if saving the originals fails', async () => {
+		const gateway = new FakeGateway(files());
+		const plan = await planTagChange('r', ['a.md'], gateway, renameMapper('ml', 'x'));
+		await applyPlan(plan, gateway, undefined, () => Promise.reject(new Error('disk full'))).catch(() => undefined);
+		expect(gateway.writes).toEqual([]);
+	});
+});
+
 describe('restoreOriginals', () => {
 	it('writes every original back', async () => {
 		const gateway = new FakeGateway({ 'a.md': 'new' });
 		await restoreOriginals({ 'a.md': 'old' }, gateway);
 		expect(gateway.files['a.md']).toBe('old');
+	});
+});
+
+describe('restrictPlan', () => {
+	const plan = {
+		description: 'rename',
+		files: [
+			{ path: 'a.md', before: 'x', after: 'y', changes: [] },
+			{ path: 'b.md', before: 'x', after: 'y', changes: [] },
+			{ path: 'c.md', before: 'x', after: 'y', changes: [] },
+		],
+	};
+
+	it('keeps only the chosen notes', () => {
+		expect(restrictPlan(plan, new Set(['a.md', 'c.md'])).files.map((f) => f.path)).toEqual(['a.md', 'c.md']);
+	});
+
+	it('keeps the description', () => {
+		expect(restrictPlan(plan, new Set(['a.md'])).description).toBe('rename');
+	});
+
+	describe('when nothing is chosen', () => {
+		it('has no files', () => {
+			expect(restrictPlan(plan, new Set()).files).toEqual([]);
+		});
+	});
+
+	it('does not modify the original plan', () => {
+		restrictPlan(plan, new Set(['a.md']));
+		expect(plan.files).toHaveLength(3);
 	});
 });
