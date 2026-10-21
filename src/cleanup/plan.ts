@@ -1,4 +1,4 @@
-import type { VaultGateway } from '../cli/gateway';
+import type { VaultGateway } from '../vault/gateway';
 import { diffLines, type LineChange } from '../diff';
 import { transformTags, type TagMapper } from '../tags/transform';
 
@@ -45,8 +45,8 @@ export interface ApplyResult {
 const sameText = (a: string, b: string): boolean => a.replace(/\r\n/g, '\n').trimEnd() === b.replace(/\r\n/g, '\n').trimEnd();
 
 /**
- * Writes the plan through the CLI. Each write is verified by reading the note back; on any mismatch the
- * original content is restored, so a misbehaving CLI cannot leave a corrupted note behind.
+ * Writes the plan. Each write is verified by reading the note back; on any mismatch the original content is
+ * restored, so an unexpected write result cannot leave a corrupted note behind.
  */
 export async function applyPlan(
 	plan: ChangePlan,

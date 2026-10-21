@@ -1,4 +1,4 @@
-import type { VaultGateway } from '../src/cli/gateway';
+import type { VaultGateway } from '../src/vault/gateway';
 import type { IndexData } from '../src/index/store';
 import { extractTags } from '../src/tags/parse';
 import { normalize } from '../src/vector';

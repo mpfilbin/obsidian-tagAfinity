@@ -1,6 +1,6 @@
 # Tagafinity
 
-Suggests tags for the current note based on how its content relates to the rest of your vault, and helps keep your tag taxonomy tidy. Desktop only: all vault access goes through the official [Obsidian CLI](https://obsidian.md/help/cli).
+Suggests tags for the current note based on how its content relates to the rest of your vault, and helps keep your tag taxonomy tidy. Vault access uses Obsidian's own API, so there is nothing else to install or enable.
 
 ## How it works
 
@@ -19,21 +19,17 @@ Suggests tags for the current note based on how its content relates to the rest 
 
 ## Requirements
 
-- Obsidian 1.12.7 or newer with the CLI enabled (Settings → General → Command line interface). The plugin finds the CLI automatically: it ships beside the Obsidian executable, and the plugin also checks `PATH` and the locations the CLI registers itself in. The "CLI executable" setting is only a fallback for unusual installs; leave it empty normally.
-- The first suggestion downloads the embedding model once; after that inference is fully local.
+- Obsidian 1.12.7 or newer (desktop). The first suggestion downloads the embedding model once; after that inference is fully local.
 
 ## Safety
 
-Writes are verified by reading each note back; if the CLI did not store exactly what was intended, the original is restored. The originals of the last change are kept for the undo command.
-
-### Limitations
-
-- Reading and listing always go through the Obsidian CLI. Writing a note back through it means sending the whole note as a command argument, which has crashed Obsidian's main process on longer notes and cannot carry backslashes or very large notes faithfully, so notes are written through Obsidian's own file API (`Vault.process`). The setting "Write notes through the CLI" switches to CLI-first writes for short notes only (longer ones still use the API).
-- Before a change is applied, the original content of every affected note is saved, so "Undo last tag change" works even if Obsidian stops partway.
+- Every change is previewed line by line and applied only to the notes you leave ticked.
+- Each write is verified by reading the note back; if it does not match what was intended, the original is restored.
+- The original content of every affected note is saved before the first write, so "Undo last tag change" works even if Obsidian stops partway.
 
 ## Troubleshooting
 
-- **Debug logging** (plugin settings → Troubleshooting) writes timestamped lines to the developer console (Ctrl+Shift+I) for the CLI, indexing, embedding and suggestion flows, and reports any stretch where the plugin blocked the main thread, with what it was doing. "Copy debug log" (settings or command palette) copies the recent lines so they can be shared.
+- **Debug logging** (plugin settings → Troubleshooting) writes timestamped lines to the developer console (Ctrl+Shift+I) for indexing, embedding, suggestion and cleanup flows, and reports any stretch where the plugin blocked the main thread, with what it was doing. "Copy debug log" (settings or command palette) copies the recent lines so they can be shared.
 - **Responsiveness:** the embedding model runs in a background web worker. If the worker cannot start, the plugin falls back to the main thread in small batches and says so in the log; the setting "Compute embeddings in the background" turns the worker off.
 
 ## Development

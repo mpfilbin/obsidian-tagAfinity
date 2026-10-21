@@ -4,8 +4,6 @@ import type Tagafinity from './main';
 import { DEFAULT_MODEL } from './embeddings/transformers';
 
 export interface TagafinitySettings {
-	cliPath: string;
-	vaultName: string;
 	embeddingModel: string;
 	neighbors: number;
 	minSimilarity: number;
@@ -16,19 +14,12 @@ export interface TagafinitySettings {
 	syncOnStartup: boolean;
 	/** One pattern per line: "*.ext" or a folder path. */
 	excludePatterns: string;
-	/** How many CLI processes run at once while indexing. */
-	cliConcurrency: number;
 	/** Run embedding inference in a background worker so Obsidian stays responsive. */
 	useEmbeddingWorker: boolean;
-	/** Send note content through the CLI when writing (short notes only). Off: Obsidian's own file API is used. */
-	writeThroughCli: boolean;
 	debugLogging: boolean;
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
-	/** Empty means detect the CLI automatically. */
-	cliPath: '',
-	vaultName: '',
 	embeddingModel: DEFAULT_MODEL,
 	neighbors: 10,
 	minSimilarity: 0.35,
@@ -38,9 +29,7 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	maxNewTags: 2,
 	syncOnStartup: false,
 	excludePatterns: '*.excalidraw.md',
-	cliConcurrency: 1,
 	useEmbeddingWorker: true,
-	writeThroughCli: false,
 	debugLogging: false,
 };
 
@@ -57,31 +46,6 @@ export class TagafinitySettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		new Setting(containerEl).setName('Obsidian CLI').setHeading();
-
-		new Setting(containerEl)
-			.setName('CLI executable')
-			.setDesc('Optional. Leave empty to detect the CLI automatically (it ships beside Obsidian). Set a full path only if detection fails.')
-			.addText((text) =>
-				text
-					.setPlaceholder('Detected automatically')
-					.setValue(this.plugin.settings.cliPath)
-					.onChange(async (value) => {
-						this.plugin.settings.cliPath = value.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Vault name')
-			.setDesc('Passed to the CLI as the target vault. Leave empty to use the CLI default.')
-			.addText((text) =>
-				text.setValue(this.plugin.settings.vaultName).onChange(async (value) => {
-					this.plugin.settings.vaultName = value.trim();
-					await this.plugin.saveSettings();
-				}),
-			);
 
 		new Setting(containerEl).setName('Suggestions').setHeading();
 
@@ -114,8 +78,6 @@ export class TagafinitySettingTab extends PluginSettingTab {
 				}),
 			);
 
-		this.slider('Parallel CLI calls', 'Notes read at once while indexing. Raise it for speed if indexing runs without errors.', 'cliConcurrency', 1, 6, 1);
-
 		new Setting(containerEl)
 			.setName('Excluded notes')
 			.setDesc('Notes to leave out of the index, one per line. Use *.ext to match a file ending, or a folder path.')
@@ -144,18 +106,6 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
 					this.plugin.settings.syncOnStartup = value;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName('Write notes through the CLI')
-			.setDesc(
-				'Off by default. Reading and listing always use the CLI. Writing a note through it sends the whole note as a command and can crash Obsidian on long notes, so notes are written through Obsidian directly. When on, only short notes use the CLI.',
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.writeThroughCli).onChange(async (value) => {
-					this.plugin.settings.writeThroughCli = value;
 					await this.plugin.saveSettings();
 				}),
 			);
@@ -242,7 +192,7 @@ export class TagafinitySettingTab extends PluginSettingTab {
 	private slider(
 		name: string,
 		desc: string,
-		key: 'neighbors' | 'minSimilarity' | 'minScore' | 'maxSuggestions' | 'maxNewTags' | 'cliConcurrency',
+		key: 'neighbors' | 'minSimilarity' | 'minScore' | 'maxSuggestions' | 'maxNewTags',
 		min: number,
 		max: number,
 		step: number,

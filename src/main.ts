@@ -1,9 +1,4 @@
-import { FileSystemAdapter, Notice, Plugin, TFile, normalizePath } from 'obsidian';
-import { FallbackWriteGateway } from './cli/fallback-gateway';
-import { CliVaultGateway, type VaultGateway } from './cli/gateway';
-import { ObsidianApiWriter } from './cli/obsidian-writer';
-import { ReadWriteGateway } from './cli/read-write-gateway';
-import { DEFAULT_BINARY, ExecFileRunner } from './cli/runner';
+import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { parseExcludePatterns } from './index/exclude';
 import { applyPlan, restoreOriginals, type ApplyResult, type ChangePlan } from './cleanup/plan';
 import { FallbackEmbeddingProvider } from './embeddings/fallback';
@@ -19,6 +14,8 @@ import { computeIndexStatus, describeIndexStatus, pendingChanges, type IndexStat
 import { refreshIndexEntry, syncIndex, type NoteStat } from './index/sync';
 import { DEFAULT_SETTINGS, TagafinitySettingTab, type TagafinitySettings } from './settings';
 import { SuggestTagsModal } from './ui/suggest-modal';
+import { ObsidianVaultGateway } from './vault/obsidian-gateway';
+import type { VaultGateway } from './vault/gateway';
 import { CleanupModal } from './ui/cleanup-modal';
 
 /** What an index update did, for callers that want to report it. */
@@ -79,12 +76,6 @@ export default class Tagafinity extends Plugin {
 			id: 'show-index-status',
 			name: 'Show tag index status',
 			callback: () => new Notice(this.describeIndex(), 8000),
-		});
-
-		this.addCommand({
-			id: 'test-cli-connection',
-			name: 'Test CLI connection',
-			callback: () => void this.testCli(),
 		});
 
 		this.addCommand({
@@ -149,46 +140,12 @@ export default class Tagafinity extends Plugin {
 		}
 	}
 
-	private get cliGateway(): CliVaultGateway {
-		const adapter = this.app.vault.adapter;
-		const vaultPath = adapter instanceof FileSystemAdapter ? adapter.getBasePath() : undefined;
-		const runner = new ExecFileRunner(
-			this.settings.cliPath || DEFAULT_BINARY,
-			60_000,
-			process.platform,
-			process.env.HOME ?? '',
-			process.env.LOCALAPPDATA ?? '',
-			vaultPath,
-			process.execPath,
-		);
-		// Target this vault explicitly rather than relying on whichever vault the CLI considers active.
-		return new CliVaultGateway(runner, { vaultName: this.settings.vaultName || this.app.vault.getName() });
-	}
+	private vaultGateway: VaultGateway | null = null;
 
-	/**
-	 * Reads and lists go through the CLI. Writes go through Obsidian's file API, because sending whole notes to the
-	 * CLI can crash Obsidian; the "write through the CLI" setting restores CLI-first writes for short notes.
-	 */
+	/** Vault access through Obsidian's own API. */
 	get gateway(): VaultGateway {
-		const writer = new ObsidianApiWriter(this.app);
-		return this.settings.writeThroughCli
-			? new FallbackWriteGateway(this.cliGateway, writer)
-			: new ReadWriteGateway(this.cliGateway, writer);
-	}
-
-	async testCli(): Promise<void> {
-		const gateway = this.cliGateway;
-		let step = 'version';
-		try {
-			const version = await gateway.version();
-			step = 'listing notes';
-			const notes = await gateway.listNotes();
-			step = 'reading a note';
-			if (notes[0]) await gateway.readNote(notes[0]);
-			new Notice(`Obsidian CLI works (Obsidian ${version}, ${notes.length} notes found).`);
-		} catch (error) {
-			new Notice(`Tagafinity: CLI test failed while ${step}. ${error instanceof Error ? error.message : String(error)}`, 20000);
-		}
+		this.vaultGateway ??= new ObsidianVaultGateway(this.app);
+		return this.vaultGateway;
 	}
 
 	get embeddingProvider(): EmbeddingProvider {
@@ -279,7 +236,6 @@ export default class Tagafinity extends Plugin {
 					stats: this.currentStats(),
 					full,
 					exclude: parseExcludePatterns(this.settings.excludePatterns),
-					concurrency: this.settings.cliConcurrency,
 					onCheckpoint: (partial) => saveIndex(this.indexStorage(), partial),
 					onProgress: (done, total, phase) => {
 						const progress = { phase, done, total };
@@ -308,7 +264,7 @@ export default class Tagafinity extends Plugin {
 		return this.syncing;
 	}
 
-	/** Applies a previewed plan through the CLI, records undo data and keeps the index current. */
+	/** Applies a previewed plan, records undo data and keeps the index current. */
 	async applyChange(plan: ChangePlan, onProgress?: (done: number, total: number) => void): Promise<ApplyResult> {
 		const undoStore = this.fileStorage('last-change.json');
 		// Save every original before the first write: if Obsidian dies mid-way, "Undo last tag change" still works.
