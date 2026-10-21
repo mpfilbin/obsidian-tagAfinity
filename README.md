@@ -12,6 +12,8 @@ Suggests tags for the current note based on how its content relates to the rest 
 
 "Open tag tree" (or the ribbon icon) shows your tags in the right sidebar as a hierarchy. Counts are distinct notes, so a note is counted once under a parent however many of its nested tags it has; hover a count for the breakdown. Tags that exist only as a parent of nested tags are shown in italics. Use the filter box (several words must all match), the sort button (note count or name), and expand/collapse all. Click a tag to list its notes below the tree and click a note to open it (Ctrl/Cmd-click for a new tab). The tree refreshes when the index changes.
 
+Right-click a tag (or press the menu key) to change it: **Rename…** (the last part of the name; nested tags follow), **Move under…** (pick a parent, a new one by typing it, or the top level), **Merge into…**, **Remove tag**, and **Remove tag and nested tags**; **Copy tag** and **Show notes** are there too. These do not write anything: each choice is added to a **Pending changes** list above the tree, the affected tags are marked, and you can drop individual changes from the list. **Preview** combines all pending changes into one preview where you can untick notes, and applying them is a single step that "Undo last tag change" reverses.
+
 ## Commands
 
 - Suggest tags for current note

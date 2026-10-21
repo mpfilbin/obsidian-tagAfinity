@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addTags, composeMappers, removeMapper, renameMapper, transformTags } from '../../src/tags/transform';
+import { addTags, composeMappers, removeMapper, removeTreeMapper, renameMapper, transformTags } from '../../src/tags/transform';
 
 describe('transformTags with renameMapper', () => {
 	const rename = renameMapper('ml', 'machine-learning');
@@ -111,5 +111,19 @@ describe('composeMappers', () => {
 		it('leaves tags unchanged', () => {
 			expect(composeMappers()('x')).toBe('x');
 		});
+	});
+});
+
+describe('removeTreeMapper', () => {
+	it('removes the tag', () => {
+		expect(removeTreeMapper('a')('a')).toBeNull();
+	});
+
+	it('removes nested tags', () => {
+		expect(removeTreeMapper('a')('a/b/c')).toBeNull();
+	});
+
+	it('keeps tags that only share a prefix', () => {
+		expect(removeTreeMapper('a')('ab')).toBe('ab');
 	});
 });

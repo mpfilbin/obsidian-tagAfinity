@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildTree, collectTagStats, type TagNode } from '../../src/taxonomy/build';
-import { defaultExpanded, filterTree, sortTree } from '../../src/taxonomy/tree-view';
+import { allTagPaths, defaultExpanded, filterTree, sortTree } from '../../src/taxonomy/tree-view';
 import { indexOf } from '../helpers';
 
 function tree(tagsByNote: Record<string, string[]>): TagNode[] {
@@ -90,5 +90,16 @@ describe('defaultExpanded', () => {
 
 	it('leaves deeper levels collapsed', () => {
 		expect(defaultExpanded(sample()).has('software/architecture')).toBe(false);
+	});
+});
+
+describe('allTagPaths', () => {
+	it('includes parents that exist only because of nested tags', () => {
+		expect(allTagPaths(sample())).toContain('software/architecture');
+	});
+
+	it('lists every node once', () => {
+		const all = allTagPaths(sample());
+		expect(new Set(all).size).toBe(all.length);
 	});
 });

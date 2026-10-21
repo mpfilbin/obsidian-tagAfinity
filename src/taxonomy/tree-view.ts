@@ -44,3 +44,8 @@ export function sortTree(nodes: TagNode[], mode: TreeSort): TagNode[] {
 export function defaultExpanded(nodes: TagNode[]): Set<string> {
 	return new Set(nodes.map(key));
 }
+
+/** Every tag path in the tree, including parents that exist only because nested tags use them. */
+export function allTagPaths(nodes: TagNode[]): string[] {
+	return nodes.flatMap((node) => [node.tag, ...allTagPaths(node.children)]);
+}

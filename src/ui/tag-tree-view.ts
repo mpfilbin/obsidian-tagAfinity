@@ -1,7 +1,19 @@
-import { ExtraButtonComponent, ItemView, Keymap, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { ExtraButtonComponent, ItemView, Keymap, Menu, Notice, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
+import {
+	isSameOrDescendant,
+	mergeAction,
+	moveAction,
+	removeAction,
+	renameAction,
+	type ActionResult,
+	type TagAction,
+} from '../cleanup/tag-actions';
 import type Tagafinity from '../main';
 import { buildTree, collectTagStats, type TagNode } from '../taxonomy/build';
-import { defaultExpanded, filterTree, sortTree, type TreeSort } from '../taxonomy/tree-view';
+import { allTagPaths, defaultExpanded, filterTree, sortTree, type TreeSort } from '../taxonomy/tree-view';
+import { previewActions } from './preview-actions';
+import { PromptModal } from './prompt-modal';
+import { TagPickerModal } from './tag-picker-modal';
 
 export const TAG_TREE_VIEW = 'tagafinity-tag-tree';
 
@@ -22,7 +34,11 @@ export class TagTreeView extends ItemView {
 	private expandedInitialized = false;
 	private unsubscribe: (() => void) | null = null;
 
+	/** Changes chosen from the menu, waiting to be previewed together. Nothing is written until then. */
+	private readonly staged = new Map<string, TagAction>();
+
 	private summaryEl!: HTMLElement;
+	private pendingEl!: HTMLElement;
 	private treeEl!: HTMLElement;
 	private notesEl!: HTMLElement;
 
@@ -89,10 +105,12 @@ export class TagTreeView extends ItemView {
 			.onClick(() => this.refresh());
 
 		this.summaryEl = root.createDiv({ cls: 'tagafinity-tree-summary setting-item-description' });
+		this.pendingEl = root.createDiv({ cls: 'tagafinity-pending' });
 		this.treeEl = root.createDiv({ cls: 'tagafinity-tree-body', attr: { role: 'tree' } });
 		this.notesEl = root.createDiv({ cls: 'tagafinity-tree-notes' });
 
 		this.unsubscribe = this.plugin.onIndexChanged(() => this.refresh());
+		this.renderPending();
 		this.refresh();
 		return Promise.resolve();
 	}
@@ -153,6 +171,7 @@ export class TagTreeView extends ItemView {
 
 	private renderNodes(nodes: TagNode[], parent: HTMLElement, depth: number, forcedOpen: Set<string>): void {
 		const widest = Math.max(1, ...nodes.map((node) => node.totalCount));
+		const pendingSources = new Set([...this.staged.values()].map((action) => action.source.toLowerCase()));
 		for (const node of nodes) {
 			const key = node.tag.toLowerCase();
 			const hasChildren = node.children.length > 0;
@@ -167,11 +186,13 @@ export class TagTreeView extends ItemView {
 			row.style.setProperty('--tagafinity-depth', String(depth));
 			if (node.tag === this.selected) row.addClass('is-selected');
 			if (node.selfCount === 0) row.addClass('is-container');
+			if (pendingSources.has(key)) row.addClass('has-pending');
 
 			const chevron = row.createSpan({ cls: 'tagafinity-chevron' });
 			if (hasChildren) setIcon(chevron, open ? 'chevron-down' : 'chevron-right');
 
 			row.createSpan({ cls: 'tagafinity-label', text: `#${node.name}` });
+			if (pendingSources.has(key)) row.createSpan({ cls: 'tagafinity-pending-dot', text: '●', attr: { 'aria-label': 'Has a pending change', title: 'Has a pending change' } });
 			const count = row.createSpan({ cls: 'tagafinity-count', text: String(node.totalCount) });
 			const own = node.selfCount === 0 ? 'none directly (it exists only as a parent of nested tags)' : `${node.selfCount} directly`;
 			count.setAttribute('title', `${node.totalCount} ${node.totalCount === 1 ? 'note' : 'notes'}: ${own}`);
@@ -197,6 +218,10 @@ export class TagTreeView extends ItemView {
 				this.selected = this.selected === node.tag ? null : node.tag;
 				this.renderTree();
 			});
+			row.addEventListener('contextmenu', (evt) => {
+				evt.preventDefault();
+				this.showMenu(evt, node);
+			});
 			row.addEventListener('keydown', (evt) => {
 				if (evt.key === 'Enter' || evt.key === ' ') {
 					evt.preventDefault();
@@ -208,6 +233,131 @@ export class TagTreeView extends ItemView {
 
 			if (open) this.renderNodes(node.children, item.createDiv({ attr: { role: 'group' } }), depth + 1, forcedOpen);
 		}
+	}
+
+	private showMenu(evt: MouseEvent, node: TagNode): void {
+		const menu = new Menu();
+		menu.addItem((item) => item.setTitle('Rename…').setIcon('pencil').onClick(() => this.promptRename(node)));
+		menu.addItem((item) => item.setTitle('Move under…').setIcon('folder-input').onClick(() => this.pickMoveTarget(node)));
+		menu.addItem((item) => item.setTitle('Merge into…').setIcon('merge').onClick(() => this.pickMergeTarget(node)));
+		menu.addSeparator();
+		if (node.selfCount > 0) {
+			menu.addItem((item) => item.setTitle('Remove tag').setIcon('trash').onClick(() => this.stage({ ok: true, ...removeAction(node.tag, false) })));
+		}
+		if (node.children.length > 0) {
+			menu.addItem((item) => item.setTitle('Remove tag and nested tags').setIcon('trash-2').onClick(() => this.stage({ ok: true, ...removeAction(node.tag, true) })));
+		}
+		menu.addSeparator();
+		menu.addItem((item) =>
+			item.setTitle('Copy tag').setIcon('copy').onClick(() => {
+				void navigator.clipboard.writeText(`#${node.tag}`);
+				new Notice(`Copied #${node.tag}`);
+			}),
+		);
+		menu.addItem((item) =>
+			item.setTitle('Show notes').setIcon('list').onClick(() => {
+				this.selected = node.tag;
+				this.renderTree();
+			}),
+		);
+		menu.showAtMouseEvent(evt);
+	}
+
+	private promptRename(node: TagNode): void {
+		new PromptModal(this.app, {
+			title: `Rename #${node.tag}`,
+			label: 'New name',
+			initial: node.name,
+			submitLabel: 'Add to pending changes',
+			validate: (value) => {
+				const result = renameAction(node.tag, value);
+				return result.ok ? null : result.error;
+			},
+			onSubmit: (value) => this.stage(renameAction(node.tag, value)),
+		}).open();
+	}
+
+	private pickMoveTarget(node: TagNode): void {
+		const parent = node.tag.includes('/') ? node.tag.slice(0, node.tag.lastIndexOf('/')).toLowerCase() : null;
+		new TagPickerModal(this.app, {
+			placeholder: `Move #${node.tag} under… (type a new tag to create it)`,
+			tags: allTagPaths(this.tree),
+			exclude: (tag) => isSameOrDescendant(tag, node.tag) || tag.toLowerCase() === parent,
+			allowTopLevel: parent !== null,
+			allowNew: true,
+			onChoose: (item) => this.stage(moveAction(node.tag, item.tag)),
+		}).open();
+	}
+
+	private pickMergeTarget(node: TagNode): void {
+		new TagPickerModal(this.app, {
+			placeholder: `Merge #${node.tag} into…`,
+			tags: allTagPaths(this.tree),
+			exclude: (tag) => isSameOrDescendant(tag, node.tag),
+			onChoose: (item) => this.stage(mergeAction(node.tag, item.tag)),
+		}).open();
+	}
+
+	/** Adds a change to the pending list (or explains why it cannot be). Nothing is written. */
+	private stage(result: ActionResult): void {
+		if (!result.ok) {
+			new Notice(result.error);
+			return;
+		}
+		const { action } = result;
+		if (this.staged.has(action.key)) {
+			new Notice('That change is already in the pending changes.');
+			return;
+		}
+		const existing = action.target && action.target.toLowerCase() !== action.source.toLowerCase()
+			? allTagPaths(this.tree).find((tag) => tag.toLowerCase() === action.target!.toLowerCase())
+			: undefined;
+		if (existing) new Notice(`#${existing} already exists, so notes with #${action.source} will join it.`, 6000);
+		this.staged.set(action.key, action);
+		this.renderPending();
+		this.renderTree();
+	}
+
+	/** The list of staged changes, with a button to preview them all together. */
+	private renderPending(): void {
+		const el = this.pendingEl;
+		el.empty();
+		if (this.staged.size === 0) {
+			el.addClass('is-empty');
+			return;
+		}
+		el.removeClass('is-empty');
+
+		el.createDiv({ cls: 'tagafinity-pending-header', text: `Pending changes (${this.staged.size})` });
+		const list = el.createDiv({ cls: 'tagafinity-pending-list' });
+		let number = 0;
+		for (const action of this.staged.values()) {
+			const row = list.createDiv({ cls: 'tagafinity-pending-item' });
+			row.createSpan({ cls: 'tagafinity-pending-text', text: `${++number}. ${action.description}` });
+			new ExtraButtonComponent(row)
+				.setIcon('x')
+				.setTooltip('Remove from pending changes')
+				.onClick(() => {
+					this.staged.delete(action.key);
+					this.renderPending();
+					this.renderTree();
+				});
+		}
+
+		const buttons = el.createDiv({ cls: 'tagafinity-pending-buttons' });
+		const preview = buttons.createEl('button', { text: `Preview ${this.staged.size === 1 ? 'change' : `${this.staged.size} changes`}`, cls: 'mod-cta' });
+		preview.addEventListener('click', () =>
+			void previewActions(this.app, this.plugin, [...this.staged.values()], () => {
+				this.staged.clear();
+				this.renderPending();
+				this.renderTree();
+			}),
+		);
+		buttons.createEl('button', { text: 'Clear' }).addEventListener('click', () => {
+			this.staged.clear();
+			this.renderPending();
+			this.renderTree();
+		});
 	}
 
 	private findNode(nodes: TagNode[], tag: string): TagNode | null {

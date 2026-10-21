@@ -59,6 +59,15 @@ export function removeMapper(tagToRemove: string): TagMapper {
 	return (tag) => (tag.toLowerCase() === source ? null : tag);
 }
 
+/** Removes the tag and every tag nested under it. */
+export function removeTreeMapper(tagToRemove: string): TagMapper {
+	const source = tagToRemove.replace(/^#/, '').toLowerCase();
+	return (tag) => {
+		const lower = tag.toLowerCase();
+		return lower === source || lower.startsWith(source + '/') ? null : tag;
+	};
+}
+
 /** Adds tags to the frontmatter tag list, skipping any already present anywhere in the note. */
 export function addTags(content: string, additions: string[], existingAll: string[]): string {
 	const present = new Set(existingAll.map((t) => t.toLowerCase()));

@@ -1,12 +1,11 @@
-import { App, Modal, Notice, Setting } from 'obsidian';
-import { planTagChange } from '../cleanup/plan';
-import { pendingChanges } from '../index/status';
+import { App, Modal, Setting } from 'obsidian';
+import type { TagAction } from '../cleanup/tag-actions';
 import { log } from '../log';
 import type Tagafinity from '../main';
-import { composeMappers, removeMapper, renameMapper, type TagMapper } from '../tags/transform';
-import { buildTaxonomyAsync, notesForTag, type Taxonomy } from '../taxonomy/build';
+import { removeMapper, renameMapper } from '../tags/transform';
+import { buildTaxonomyAsync, type Taxonomy } from '../taxonomy/build';
 import { yieldEvery } from '../yield';
-import { PreviewModal } from './preview-modal';
+import { previewActions } from './preview-actions';
 
 type Tab = 'merge' | 'nest' | 'prune';
 
@@ -16,22 +15,13 @@ const TABS: { id: Tab; label: string }[] = [
 	{ id: 'prune', label: 'Prune' },
 ];
 
-/** One proposed change to a tag, which can be previewed alone or together with others. */
-interface CleanupAction {
-	key: string;
-	description: string;
-	/** Tag whose notes (and those of its nested children) the change touches. */
-	tag: string;
-	mapper: TagMapper;
-}
-
 interface ActionRow {
-	action: CleanupAction;
+	action: TagAction;
 	title: string;
 	detail: string;
 	previewLabel: string;
 	/** The same merge in the opposite direction. */
-	swapped?: CleanupAction;
+	swapped?: TagAction;
 }
 
 export class CleanupModal extends Modal {
@@ -40,7 +30,7 @@ export class CleanupModal extends Modal {
 	private body: HTMLElement | null = null;
 	private footer: HTMLElement | null = null;
 	/** Chosen changes by key; kept while switching tabs. */
-	private readonly selected = new Map<string, CleanupAction>();
+	private readonly selected = new Map<string, TagAction>();
 
 	constructor(
 		app: App,
@@ -92,22 +82,22 @@ export class CleanupModal extends Modal {
 		switch (tab) {
 			case 'merge':
 				return taxonomy.mergeCandidates.slice(0, 50).map((c) => ({
-					action: { key: `merge:${c.from}>${c.into}`, description: `Merge #${c.from} into #${c.into}`, tag: c.from, mapper: renameMapper(c.from, c.into) },
+					action: { key: `merge:${c.from}>${c.into}`, description: `Merge #${c.from} into #${c.into}`, source: c.from, target: c.into, mapper: renameMapper(c.from, c.into) },
 					title: `#${c.from} → #${c.into}`,
 					detail: c.reasons.join('; '),
 					previewLabel: 'Preview',
-					swapped: { key: `merge:${c.into}>${c.from}`, description: `Merge #${c.into} into #${c.from}`, tag: c.into, mapper: renameMapper(c.into, c.from) },
+					swapped: { key: `merge:${c.into}>${c.from}`, description: `Merge #${c.into} into #${c.from}`, source: c.into, target: c.from, mapper: renameMapper(c.into, c.from) },
 				}));
 			case 'nest':
 				return taxonomy.parentCandidates.slice(0, 50).map((c) => ({
-					action: { key: `nest:${c.tag}`, description: `Nest #${c.tag} under #${c.parent}`, tag: c.tag, mapper: renameMapper(c.tag, c.proposed) },
+					action: { key: `nest:${c.tag}`, description: `Nest #${c.tag} under #${c.parent}`, source: c.tag, target: c.proposed, mapper: renameMapper(c.tag, c.proposed) },
 					title: `#${c.tag} → #${c.proposed}`,
 					detail: `${Math.round(c.containment * 100)}% of notes tagged #${c.tag} are also tagged #${c.parent}`,
 					previewLabel: 'Preview',
 				}));
 			case 'prune':
 				return taxonomy.pruneCandidates.slice(0, 100).map((c) => ({
-					action: { key: `prune:${c.tag}`, description: `Remove #${c.tag}`, tag: c.tag, mapper: removeMapper(c.tag) },
+					action: { key: `prune:${c.tag}`, description: `Remove #${c.tag}`, source: c.tag, mapper: removeMapper(c.tag) },
 					title: `#${c.tag}`,
 					detail: `Used in ${c.notes.map((p) => p.replace(/\.md$/i, '')).join(', ')}`,
 					previewLabel: 'Preview removal',
@@ -171,38 +161,15 @@ export class CleanupModal extends Modal {
 		preview.addEventListener('click', () => void this.preview([...this.selected.values()]));
 	}
 
-	/** Plans one or several changes as a single preview. Nothing is written until the user confirms there. */
-	private async preview(actions: CleanupAction[]): Promise<void> {
-		if (actions.length === 0 || !this.taxonomy) return;
-		const taxonomy = this.taxonomy;
-		try {
-			const gateway = this.plugin.gateway;
-			// The index lists the notes. If the vault changed since it was built, also ask Obsidian directly.
-			const stale = pendingChanges(this.plugin.indexStatus()) > 0;
-			const paths = new Set<string>();
-			for (const action of actions) {
-				for (const path of notesForTag(taxonomy.stats, action.tag)) paths.add(path);
-				if (stale) for (const path of await gateway.notesWithTag(action.tag).catch(() => [] as string[])) paths.add(path);
-			}
-			const description =
-				actions.length === 1
-					? actions[0]!.description
-					: `${actions.length} changes: ${actions.slice(0, 3).map((a) => a.description).join('; ')}${actions.length > 3 ? '; …' : ''}`;
-			const plan = await planTagChange(description, [...paths], gateway, composeMappers(...actions.map((a) => a.mapper)));
-			if (plan.files.length === 0) {
-				new Notice('No notes would change. The index may be out of date, so update it and try again.');
-				return;
-			}
-			new PreviewModal(this.app, this.plugin, plan, () => {
-				this.selected.clear();
-				void this.loadTaxonomy().then((fresh) => {
-					this.taxonomy = fresh;
-					this.renderTab();
-				});
-			}).open();
-		} catch (error) {
-			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);
-		}
+	/** Previews one or several changes as a single combined change. Nothing is written until confirmed there. */
+	private async preview(actions: TagAction[]): Promise<void> {
+		await previewActions(this.app, this.plugin, actions, () => {
+			this.selected.clear();
+			void this.loadTaxonomy().then((fresh) => {
+				this.taxonomy = fresh;
+				this.renderTab();
+			});
+		});
 	}
 
 	onClose(): void {
