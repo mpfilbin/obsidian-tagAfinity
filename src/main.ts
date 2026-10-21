@@ -149,6 +149,7 @@ export default class Tagafinity extends Plugin {
 			process.env.HOME ?? '',
 			process.env.LOCALAPPDATA ?? '',
 			vaultPath,
+			process.execPath,
 		);
 		// Target this vault explicitly rather than relying on whichever vault the CLI considers active.
 		return new CliVaultGateway(runner, { vaultName: this.settings.vaultName || this.app.vault.getName() });

@@ -19,7 +19,7 @@ Suggests tags for the current note based on how its content relates to the rest 
 
 ## Requirements
 
-- Obsidian 1.12.7 or newer with the CLI enabled (Settings → General → Command line interface). The plugin looks for `obsidian` on your `PATH` and in the location the CLI registers itself in; set a custom path in the plugin settings if needed. On Windows the CLI is `Obsidian.com` (not `Obsidian.exe`), e.g. `C:\\Users\\you\\AppData\\Local\\Programs\\Obsidian\\Obsidian.com`.
+- Obsidian 1.12.7 or newer with the CLI enabled (Settings → General → Command line interface). The plugin finds the CLI automatically: it ships beside the Obsidian executable, and the plugin also checks `PATH` and the locations the CLI registers itself in. The "CLI executable" setting is only a fallback for unusual installs; leave it empty normally.
 - The first suggestion downloads the embedding model once; after that inference is fully local.
 
 ## Safety

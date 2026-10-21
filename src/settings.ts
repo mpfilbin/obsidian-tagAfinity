@@ -23,7 +23,8 @@ export interface TagafinitySettings {
 }
 
 export const DEFAULT_SETTINGS: TagafinitySettings = {
-	cliPath: 'obsidian',
+	/** Empty means detect the CLI automatically. */
+	cliPath: '',
 	vaultName: '',
 	embeddingModel: DEFAULT_MODEL,
 	neighbors: 10,
@@ -55,12 +56,15 @@ export class TagafinitySettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('CLI executable')
-			.setDesc('Name or full path of the CLI executable. The default finds the CLI automatically; on Windows set the full path to Obsidian.com if it fails.')
+			.setDesc('Optional. Leave empty to detect the CLI automatically (it ships beside Obsidian). Set a full path only if detection fails.')
 			.addText((text) =>
-				text.setValue(this.plugin.settings.cliPath).onChange(async (value) => {
-					this.plugin.settings.cliPath = value.trim() || DEFAULT_SETTINGS.cliPath;
-					await this.plugin.saveSettings();
-				}),
+				text
+					.setPlaceholder('Detected automatically')
+					.setValue(this.plugin.settings.cliPath)
+					.onChange(async (value) => {
+						this.plugin.settings.cliPath = value.trim();
+						await this.plugin.saveSettings();
+					}),
 			);
 
 		new Setting(containerEl)

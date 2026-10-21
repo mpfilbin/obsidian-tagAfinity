@@ -39,6 +39,52 @@ describe('candidateBinaries', () => {
 	});
 });
 
+describe('candidateBinaries next to the running Obsidian', () => {
+	describe('on Windows', () => {
+		it('tries Obsidian.com beside Obsidian.exe first', () => {
+			expect(
+				candidateBinaries('', 'win32', 'C:\\Users\\u', 'C:\\Users\\u\\AppData\\Local', 'D:\\Apps\\Obsidian\\Obsidian.exe')[0],
+			).toBe('D:\\Apps\\Obsidian\\Obsidian.com');
+		});
+	});
+
+	describe('on macOS', () => {
+		it('tries obsidian-cli beside the app binary first', () => {
+			expect(candidateBinaries('', 'darwin', '/Users/u', '', '/Applications/Obsidian.app/Contents/MacOS/Obsidian')[0]).toBe(
+				'/Applications/Obsidian.app/Contents/MacOS/obsidian-cli',
+			);
+		});
+	});
+
+	describe('on Linux', () => {
+		it('tries obsidian-cli beside the app binary first', () => {
+			expect(candidateBinaries('', 'linux', '/home/u', '', '/opt/Obsidian/obsidian')[0]).toBe('/opt/Obsidian/obsidian-cli');
+		});
+
+		it('still falls back to the name on PATH', () => {
+			expect(candidateBinaries('', 'linux', '/home/u', '', '/opt/Obsidian/obsidian')).toContain('obsidian');
+		});
+	});
+
+	describe('when the setting is empty', () => {
+		it('behaves like the default name', () => {
+			expect(candidateBinaries('', 'linux', '/home/u')).toEqual(candidateBinaries('obsidian', 'linux', '/home/u'));
+		});
+	});
+
+	describe('when the app path is unknown', () => {
+		it('uses the other candidates only', () => {
+			expect(candidateBinaries('', 'win32', 'C:\\Users\\u', '', '')).toEqual(['obsidian.com']);
+		});
+	});
+
+	describe('when a custom path is configured', () => {
+		it('uses only that path', () => {
+			expect(candidateBinaries('/opt/custom', 'linux', '/home/u', '', '/opt/Obsidian/obsidian')).toEqual(['/opt/custom']);
+		});
+	});
+});
+
 describe('sanitizedEnv', () => {
 	describe('when the environment has ELECTRON_ variables', () => {
 		it('removes them so the CLI starts as a fresh app', () => {
