@@ -1,4 +1,4 @@
-import { ExtraButtonComponent, ItemView, Keymap, Menu, Notice, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { DropdownComponent, ExtraButtonComponent, ItemView, Keymap, Menu, Notice, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
 import { resolveDrop } from '../cleanup/drop';
 import {
 	isSameOrDescendant,
@@ -83,14 +83,19 @@ export class TagTreeView extends ItemView {
 			this.renderTree();
 		});
 
-		const buttons = toolbar.createDiv({ cls: 'tagafinity-tree-buttons' });
-		const sortButton = new ExtraButtonComponent(buttons).setIcon('arrow-down-wide-narrow').setTooltip('Sorted by note count; click to sort by name');
-		sortButton.onClick(() => {
-			this.sort = this.sort === 'count' ? 'name' : 'count';
-			sortButton.setIcon(this.sort === 'count' ? 'arrow-down-wide-narrow' : 'arrow-down-a-z');
-			sortButton.setTooltip(this.sort === 'count' ? 'Sorted by note count; click to sort by name' : 'Sorted by name; click to sort by note count');
-			this.renderTree();
-		});
+		// Second row: sorting and the view buttons. A dropdown rather than an icon toggle, because it always renders
+		// and says what it does.
+		const controls = toolbar.createDiv({ cls: 'tagafinity-tree-controls' });
+		new DropdownComponent(controls)
+			.addOption('count', 'Sort by note count')
+			.addOption('name', 'Sort by name')
+			.setValue(this.sort)
+			.onChange((value) => {
+				this.sort = value === 'name' ? 'name' : 'count';
+				this.renderTree();
+			});
+
+		const buttons = controls.createDiv({ cls: 'tagafinity-tree-buttons' });
 		new ExtraButtonComponent(buttons)
 			.setIcon('chevrons-up-down')
 			.setTooltip('Expand all')

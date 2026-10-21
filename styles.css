@@ -76,17 +76,29 @@
 
 .tagafinity-tree-toolbar {
 	display: flex;
-	align-items: center;
+	flex-direction: column;
 	gap: var(--size-4-2);
 }
 
 .tagafinity-tree-toolbar input[type='search'] {
-	flex: 1;
+	width: 100%;
+}
+
+.tagafinity-tree-controls {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+}
+
+.tagafinity-tree-controls select {
+	flex: 1 1 auto;
 	min-width: 0;
 }
 
 .tagafinity-tree-buttons {
 	display: flex;
+	flex: 0 0 auto;
 }
 
 .tagafinity-tree-body {
