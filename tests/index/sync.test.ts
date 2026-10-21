@@ -83,6 +83,34 @@ describe('syncIndex', () => {
 		});
 	});
 
+	describe('progress reporting', () => {
+		it('reports each phase in order', async () => {
+			const phases: string[] = [];
+			await syncIndex({
+				gateway: new FakeGateway({ 'a.md': 'one', 'b.md': 'two' }),
+				embedder: new CountingEmbedder(),
+				index: emptyIndex('fake'),
+				onProgress: (_done, _total, phase) => {
+					if (phases[phases.length - 1] !== phase) phases.push(phase);
+				},
+			});
+			expect(phases).toEqual(['preparing', 'reading', 'embedding', 'finishing']);
+		});
+
+		it('reports the total number of notes to read', async () => {
+			const totals: number[] = [];
+			await syncIndex({
+				gateway: new FakeGateway({ 'a.md': 'one', 'b.md': 'two' }),
+				embedder: new CountingEmbedder(),
+				index: emptyIndex('fake'),
+				onProgress: (_d, total, phase) => {
+					if (phase === 'reading') totals.push(total);
+				},
+			});
+			expect(totals[totals.length - 1]).toBe(2);
+		});
+	});
+
 	describe('when checkpoints are throttled', () => {
 		it('saves only every nth batch', async () => {
 			const checkpoints: number[] = [];

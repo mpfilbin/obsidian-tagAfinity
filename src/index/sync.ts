@@ -8,6 +8,7 @@ import { proseOf } from '../text/tokenize';
 import { extractTags } from '../tags/parse';
 import type { IndexData, IndexedNote } from './store';
 import { emptyIndex } from './store';
+import type { IndexPhase } from './progress';
 
 export interface SyncStats {
 	added: number;
@@ -39,7 +40,7 @@ export interface SyncOptions {
 	batchSize?: number;
 	/** Persist a checkpoint every this many embedded batches (saving serializes the whole index). */
 	checkpointEvery?: number;
-	onProgress?: (done: number, total: number, phase: 'reading' | 'embedding') => void;
+	onProgress?: (done: number, total: number, phase: IndexPhase) => void;
 	/**
 	 * Called after every embedded batch with an index that is safe to persist: finished notes plus, for notes not
 	 * reached yet, their previous entries. Lets an interrupted run resume instead of starting over.
@@ -86,6 +87,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const previous = options.index.model === embedder.id ? options.index : emptyIndex(embedder.id);
 
 	// Fail fast: loading the model is the step most likely to break, and reading every note first wastes minutes.
+	onProgress?.(0, 0, 'preparing');
 	await log.time('index', 'embedder warm-up (loads the model)', () => embedder.embed([WARM_UP_TEXT]));
 	const batchSize = options.batchSize ?? embedder.batchSize ?? 16;
 
@@ -111,6 +113,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	}
 	log.info('index', `${toRead.length} of ${paths.length} notes changed since the last update${options.full ? ' (full rebuild)' : ''}`);
 
+	onProgress?.(0, toRead.length, 'reading');
 	let read = 0;
 	const contents = await mapPool(
 		toRead,
@@ -161,6 +164,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 		await yieldToUi();
 	}
 
+	onProgress?.(0, 0, 'finishing');
 	const everythingRead = toRead.length === paths.length;
 	const df =
 		everythingRead || previous.docCount === 0

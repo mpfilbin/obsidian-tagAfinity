@@ -39,3 +39,10 @@
 .tagafinity-diff-remove {
 	background-color: rgba(var(--color-red-rgb), 0.15);
 }
+
+.tagafinity-progress {
+	display: block;
+	width: 100%;
+	margin-top: var(--size-4-1);
+	accent-color: var(--interactive-accent);
+}

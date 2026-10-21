@@ -1,4 +1,5 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, type ButtonComponent } from 'obsidian';
+import { describeProgress, progressFraction, type IndexProgress } from './index/progress';
 import type Tagafinity from './main';
 import { DEFAULT_MODEL } from './embeddings/transformers';
 
@@ -41,6 +42,8 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 };
 
 export class TagafinitySettingTab extends PluginSettingTab {
+	private unsubscribe: (() => void) | null = null;
+
 	constructor(
 		app: App,
 		private readonly plugin: Tagafinity,
@@ -130,27 +133,7 @@ export class TagafinitySettingTab extends PluginSettingTab {
 				}),
 			);
 
-		const status = new Setting(containerEl).setName('Index status').setDesc(this.plugin.describeIndex());
-		status.addButton((button) =>
-			button.setButtonText('Update now').onClick(() => {
-				void this.plugin.updateIndex().then(() => status.setDesc(this.plugin.describeIndex()));
-			}),
-		);
-		status.addExtraButton((button) =>
-			button
-				.setIcon('refresh-cw')
-				.setTooltip('Refresh status')
-				.onClick(() => status.setDesc(this.plugin.describeIndex())),
-		);
-
-		new Setting(containerEl)
-			.setName('Rebuild index from scratch')
-			.setDesc('Reads and embeds every note again. Only needed if suggestions look wrong after a large change.')
-			.addButton((button) =>
-				button.setButtonText('Rebuild').onClick(() => {
-					void this.plugin.updateIndex({ full: true }).then(() => status.setDesc(this.plugin.describeIndex()));
-				}),
-			);
+		this.displayIndexControls();
 
 		new Setting(containerEl)
 			.setName('Update index on startup')
@@ -163,6 +146,62 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			);
 
 		this.displayDebugging();
+	}
+
+	/** Index status, with live progress while an update runs and buttons that are disabled meanwhile. */
+	private displayIndexControls(): void {
+		const { containerEl } = this;
+		const status = new Setting(containerEl).setName('Index status');
+		const rebuild = new Setting(containerEl)
+			.setName('Rebuild index from scratch')
+			.setDesc('Reads and embeds every note again. Only needed if suggestions look wrong after a large change.');
+
+		let updateButton: ButtonComponent | undefined;
+		let rebuildButton: ButtonComponent | undefined;
+
+		const render = (progress: IndexProgress | null, summary?: string): void => {
+			status.descEl.empty();
+			if (progress) {
+				status.descEl.createDiv({ text: describeProgress(progress) });
+				const bar = status.descEl.createEl('progress', { cls: 'tagafinity-progress' });
+				bar.max = 1;
+				const fraction = progressFraction(progress);
+				if (fraction !== undefined) bar.value = fraction; // no value attribute means indeterminate
+			} else {
+				status.descEl.createDiv({ text: [summary, this.plugin.describeIndex()].filter(Boolean).join(' ') });
+			}
+			updateButton?.setDisabled(progress !== null);
+			rebuildButton?.setDisabled(progress !== null);
+		};
+
+		const run = (full: boolean): void => {
+			// Quiet: progress and the result are shown right here instead of in notices.
+			void this.plugin.updateIndex({ quiet: true, full }).then((result) => render(this.plugin.indexProgress, result.summary));
+		};
+
+		status.addButton((button) => {
+			updateButton = button;
+			button.setButtonText('Update now').onClick(() => run(false));
+		});
+		status.addExtraButton((button) =>
+			button
+				.setIcon('refresh-cw')
+				.setTooltip('Refresh status')
+				.onClick(() => render(this.plugin.indexProgress)),
+		);
+		rebuild.addButton((button) => {
+			rebuildButton = button;
+			button.setButtonText('Rebuild').onClick(() => run(true));
+		});
+
+		render(this.plugin.indexProgress);
+		this.unsubscribe?.();
+		this.unsubscribe = this.plugin.onIndexProgress((progress) => render(progress));
+	}
+
+	hide(): void {
+		this.unsubscribe?.();
+		this.unsubscribe = null;
 	}
 
 	private displayDebugging(): void {

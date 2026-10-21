@@ -13,11 +13,18 @@ import { log } from './log';
 import { startStallMonitor } from './stall-monitor';
 import type { EmbeddingProvider } from './embeddings/provider';
 import { emptyIndex, loadIndex, saveIndex, type IndexData, type IndexStorage } from './index/store';
+import { describeProgress, type IndexProgress } from './index/progress';
 import { computeIndexStatus, describeIndexStatus, pendingChanges, type IndexStatus } from './index/status';
 import { refreshIndexEntry, syncIndex, type NoteStat } from './index/sync';
 import { DEFAULT_SETTINGS, TagafinitySettingTab, type TagafinitySettings } from './settings';
 import { SuggestTagsModal } from './ui/suggest-modal';
 import { CleanupModal } from './ui/cleanup-modal';
+
+/** What an index update did, for callers that want to report it. */
+export interface IndexUpdateResult {
+	summary: string;
+	failed: boolean;
+}
 
 export default class Tagafinity extends Plugin {
 	settings: TagafinitySettings = { ...DEFAULT_SETTINGS };
@@ -25,7 +32,9 @@ export default class Tagafinity extends Plugin {
 	private embedder: EmbeddingProvider | null = null;
 	private embedderUsesWorker = true;
 	private stopStallMonitor: (() => void) | null = null;
-	private syncing: Promise<void> | null = null;
+	private syncing: Promise<IndexUpdateResult> | null = null;
+	private progress: IndexProgress | null = null;
+	private readonly progressListeners = new Set<(progress: IndexProgress | null) => void>();
 
 	async onload() {
 		await this.loadSettings();
@@ -223,20 +232,39 @@ export default class Tagafinity extends Plugin {
 		return Object.keys(this.index.notes).length > 0;
 	}
 
+	/** The update in progress, or null when none is running. */
+	get indexProgress(): IndexProgress | null {
+		return this.progress;
+	}
+
+	/** Subscribes to progress of index updates (null when one ends). Returns a function that unsubscribes. */
+	onIndexProgress(listener: (progress: IndexProgress | null) => void): () => void {
+		this.progressListeners.add(listener);
+		return () => this.progressListeners.delete(listener);
+	}
+
+	private setProgress(progress: IndexProgress | null): void {
+		this.progress = progress;
+		for (const listener of this.progressListeners) listener(progress);
+	}
+
 	/**
 	 * Updates the index. Only notes whose modification time or size changed are read and embedded, so an update
-	 * with nothing new does nothing. `full` re-reads every note. Concurrent calls share one run.
+	 * with nothing new does nothing. `full` re-reads every note. Concurrent calls share one run. `quiet` suppresses
+	 * the progress and completion notices (errors are always shown); progress is available via onIndexProgress.
 	 */
-	updateIndex(options: { quiet?: boolean; full?: boolean } = {}): Promise<void> {
+	updateIndex(options: { quiet?: boolean; full?: boolean } = {}): Promise<IndexUpdateResult> {
 		const { quiet = false, full = false } = options;
 		if (!this.syncing && !full && this.hasIndex() && pendingChanges(this.indexStatus()) === 0) {
 			log.info('index', 'update skipped: nothing changed');
-			if (!quiet) new Notice(this.describeIndex());
-			return Promise.resolve();
+			const summary = this.describeIndex();
+			if (!quiet) new Notice(summary);
+			return Promise.resolve({ summary, failed: false });
 		}
-		this.syncing ??= (async () => {
+		this.syncing ??= (async (): Promise<IndexUpdateResult> => {
 			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
+			this.setProgress({ phase: 'preparing', done: 0, total: 0 });
 			try {
 				const { index, stats } = await syncIndex({
 					gateway: this.gateway,
@@ -247,22 +275,28 @@ export default class Tagafinity extends Plugin {
 					exclude: parseExcludePatterns(this.settings.excludePatterns),
 					concurrency: this.settings.cliConcurrency,
 					onCheckpoint: (partial) => saveIndex(this.indexStorage(), partial),
-					onProgress: (done, total, phase) =>
-						notice?.setMessage(`Tagafinity: ${phase === 'reading' ? 'reading' : 'embedding'} notes ${done}/${total}`),
+					onProgress: (done, total, phase) => {
+						const progress = { phase, done, total };
+						this.setProgress(progress);
+						notice?.setMessage(`Tagafinity: ${describeProgress(progress)}`);
+					},
 				});
 				this.index = index;
 				await saveIndex(this.indexStorage(), index);
 				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
-				if (!quiet) {
-					new Notice(`Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`);
-				}
+				const summary = `Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
+				if (!quiet) new Notice(summary);
+				return { summary, failed: false };
 			} catch (error) {
 				notice?.hide();
-				log.info('index', `update failed: ${error instanceof Error ? error.message : String(error)}`);
-				new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);
+				const message = error instanceof Error ? error.message : String(error);
+				log.info('index', `update failed: ${message}`);
+				new Notice(`Tagafinity: ${message}`, 10000);
+				return { summary: `Update failed: ${message}`, failed: true };
 			} finally {
 				this.syncing = null;
+				this.setProgress(null);
 			}
 		})();
 		return this.syncing;
