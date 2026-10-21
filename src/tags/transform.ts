@@ -75,3 +75,15 @@ export function addTags(content: string, additions: string[], existingAll: strin
 	}
 	return joinFrontmatter({ ...split, front: front ?? '' });
 }
+
+/** Applies each mapper in turn; a tag removed by one is not passed to the next. */
+export function composeMappers(...mappers: TagMapper[]): TagMapper {
+	return (tag) => {
+		let current: string | null = tag;
+		for (const mapper of mappers) {
+			if (current === null) return null;
+			current = mapper(current);
+		}
+		return current;
+	};
+}

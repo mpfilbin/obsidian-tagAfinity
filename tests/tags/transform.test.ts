@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addTags, removeMapper, renameMapper, transformTags } from '../../src/tags/transform';
+import { addTags, composeMappers, removeMapper, renameMapper, transformTags } from '../../src/tags/transform';
 
 describe('transformTags with renameMapper', () => {
 	const rename = renameMapper('ml', 'machine-learning');
@@ -81,6 +81,35 @@ describe('addTags', () => {
 	describe('when frontmatter exists without tags', () => {
 		it('adds a tags property', () => {
 			expect(addTags('---\ntitle: T\n---\nb', ['x'], [])).toBe('---\ntitle: T\ntags:\n  - x\n---\nb');
+		});
+	});
+});
+
+describe('composeMappers', () => {
+	describe('when two renames apply to different tags', () => {
+		it('applies each to its own tag', () => {
+			const mapper = composeMappers(renameMapper('ml', 'machine-learning'), renameMapper('js', 'javascript'));
+			expect(transformTags('#ml and #js', mapper)).toBe('#machine-learning and #javascript');
+		});
+	});
+
+	describe('when a rename is followed by a removal of its result', () => {
+		it('applies them in order', () => {
+			const mapper = composeMappers(renameMapper('ml', 'old'), removeMapper('old'));
+			expect(transformTags('x #ml y', mapper)).toBe('x y');
+		});
+	});
+
+	describe('when a tag is removed by the first mapper', () => {
+		it('does not pass it to the next', () => {
+			const mapper = composeMappers(removeMapper('a'), renameMapper('a', 'b'));
+			expect(mapper('a')).toBeNull();
+		});
+	});
+
+	describe('when given no mappers', () => {
+		it('leaves tags unchanged', () => {
+			expect(composeMappers()('x')).toBe('x');
 		});
 	});
 });

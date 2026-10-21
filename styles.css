@@ -46,3 +46,22 @@
 	margin-top: var(--size-4-1);
 	accent-color: var(--interactive-accent);
 }
+
+.tagafinity-preview-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+}
+
+.tagafinity-preview-row details {
+	flex: 1;
+	min-width: 0;
+}
+
+.tagafinity-selection-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+	justify-content: flex-end;
+	margin-top: var(--size-4-3);
+}

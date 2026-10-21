@@ -30,6 +30,11 @@ export async function planTagChange(
 	return { description, files };
 }
 
+/** The same plan limited to the chosen notes. */
+export function restrictPlan(plan: ChangePlan, paths: Set<string>): ChangePlan {
+	return { ...plan, files: plan.files.filter((file) => paths.has(file.path)) };
+}
+
 export interface ApplyResult {
 	applied: string[];
 	failed: { path: string; reason: string }[];
