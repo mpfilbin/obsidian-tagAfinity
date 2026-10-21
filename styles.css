@@ -261,3 +261,47 @@
 	color: var(--text-error);
 	font-size: var(--font-ui-small);
 }
+
+/* Drag and drop */
+.tagafinity-row[draggable='true'] {
+	-webkit-user-drag: element;
+}
+
+.tagafinity-row.is-dragging {
+	opacity: 0.45;
+}
+
+.tagafinity-row.is-drop-target,
+.tagafinity-drop-bar.is-drop-target {
+	background-color: var(--background-modifier-hover);
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.tagafinity-row.is-drop-invalid {
+	cursor: not-allowed;
+	outline: 1px dashed var(--text-error);
+	outline-offset: -1px;
+}
+
+.tagafinity-drop-bar {
+	flex: 0 0 auto;
+	min-height: 2.6em;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px dashed var(--background-modifier-border-hover);
+	border-radius: var(--radius-m);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	overflow-wrap: anywhere;
+	/* Hidden but still laid out, so showing it during a drag never shifts the rows. */
+	visibility: hidden;
+}
+
+.tagafinity-drop-bar.is-active {
+	visibility: visible;
+}
+
+.tagafinity-drop-bar.is-invalid {
+	color: var(--text-error);
+}
+

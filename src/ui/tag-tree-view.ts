@@ -1,4 +1,5 @@
 import { ExtraButtonComponent, ItemView, Keymap, Menu, Notice, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { resolveDrop } from '../cleanup/drop';
 import {
 	isSameOrDescendant,
 	mergeAction,
@@ -37,6 +38,13 @@ export class TagTreeView extends ItemView {
 	/** Changes chosen from the menu, waiting to be previewed together. Nothing is written until then. */
 	private readonly staged = new Map<string, TagAction>();
 
+	/** The tag being dragged, or null when no drag is under way. */
+	private dragged: string | null = null;
+	/** Pending hover-to-expand while dragging over a collapsed branch. */
+	private expandTimer: { key: string; id: number } | null = null;
+
+	/** A fixed bar below the tree: shows what a drop would do, and is the drop zone for the top level. */
+	private dropBarEl!: HTMLElement;
 	private summaryEl!: HTMLElement;
 	private pendingEl!: HTMLElement;
 	private treeEl!: HTMLElement;
@@ -107,6 +115,8 @@ export class TagTreeView extends ItemView {
 		this.summaryEl = root.createDiv({ cls: 'tagafinity-tree-summary setting-item-description' });
 		this.pendingEl = root.createDiv({ cls: 'tagafinity-pending' });
 		this.treeEl = root.createDiv({ cls: 'tagafinity-tree-body', attr: { role: 'tree' } });
+		this.dropBarEl = root.createDiv({ cls: 'tagafinity-drop-bar' });
+		this.registerDragZones();
 		this.notesEl = root.createDiv({ cls: 'tagafinity-tree-notes' });
 
 		this.unsubscribe = this.plugin.onIndexChanged(() => this.refresh());
@@ -218,6 +228,7 @@ export class TagTreeView extends ItemView {
 				this.selected = this.selected === node.tag ? null : node.tag;
 				this.renderTree();
 			});
+			this.attachDragHandlers(row, node, open, hasChildren);
 			row.addEventListener('contextmenu', (evt) => {
 				evt.preventDefault();
 				this.showMenu(evt, node);
@@ -233,6 +244,118 @@ export class TagTreeView extends ItemView {
 
 			if (open) this.renderNodes(node.children, item.createDiv({ attr: { role: 'group' } }), depth + 1, forcedOpen);
 		}
+	}
+
+	/** Auto-scroll near the edges of the tree and the top-level drop zone. */
+	private registerDragZones(): void {
+		this.treeEl.addEventListener('dragover', (evt) => {
+			if (!this.dragged) return;
+			const rect = this.treeEl.getBoundingClientRect();
+			if (evt.clientY - rect.top < 32) this.treeEl.scrollTop -= 14;
+			else if (rect.bottom - evt.clientY < 32) this.treeEl.scrollTop += 14;
+		});
+
+		// The bar is always laid out (hidden, not removed), so showing it never moves the rows being aimed at.
+		const bar = this.dropBarEl;
+		bar.addEventListener('dragover', (evt) => {
+			if (!this.dragged) return;
+			const result = resolveDrop(this.dragged, null, false);
+			this.showDropHint(result.ok ? result.action.description : result.error, result.ok);
+			if (!result.ok) return;
+			evt.preventDefault();
+			if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+			bar.addClass('is-drop-target');
+		});
+		bar.addEventListener('dragleave', () => bar.removeClass('is-drop-target'));
+		bar.addEventListener('drop', (evt) => {
+			evt.preventDefault();
+			const dragged = this.dragged;
+			this.endDrag();
+			if (dragged) this.stage(resolveDrop(dragged, null, false));
+		});
+	}
+
+	/** Makes a row draggable and a drop target: dropping tag A on tag B stages "move A under B" (Alt merges instead). */
+	private attachDragHandlers(row: HTMLElement, node: TagNode, open: boolean, hasChildren: boolean): void {
+		row.draggable = true;
+
+		row.addEventListener('dragstart', (evt) => {
+			this.dragged = node.tag;
+			if (evt.dataTransfer) {
+				evt.dataTransfer.setData('text/plain', `#${node.tag}`);
+				evt.dataTransfer.effectAllowed = 'move';
+			}
+			row.addClass('is-dragging');
+			this.showDropHint(
+				node.tag.includes('/')
+					? 'Drop on a tag to move it under that tag, or on this bar for the top level. Hold Alt to merge.'
+					: 'Drop on a tag to move it under that tag. Hold Alt to merge.',
+				true,
+			);
+		});
+		// This listener is on the row itself, so it still runs if the row is re-rendered during the drag.
+		row.addEventListener('dragend', () => this.endDrag());
+
+		row.addEventListener('dragover', (evt) => {
+			if (!this.dragged) return;
+			const result = resolveDrop(this.dragged, node.tag, evt.altKey);
+			const hint = result.ok ? `${result.action.description}${evt.altKey ? '' : ' (hold Alt to merge instead)'}` : result.error;
+			this.showDropHint(hint, result.ok);
+			row.toggleClass('is-drop-target', result.ok);
+			row.toggleClass('is-drop-invalid', !result.ok);
+			if (result.ok) {
+				evt.preventDefault();
+				if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+			}
+			this.scheduleExpand(node, open, hasChildren);
+		});
+		row.addEventListener('dragleave', () => {
+			row.removeClass('is-drop-target');
+			row.removeClass('is-drop-invalid');
+			this.cancelExpand();
+		});
+		row.addEventListener('drop', (evt) => {
+			evt.preventDefault();
+			const dragged = this.dragged;
+			this.endDrag();
+			if (dragged) this.stage(resolveDrop(dragged, node.tag, evt.altKey));
+		});
+	}
+
+	/** Opens a collapsed branch after hovering over it for a moment, so tags can be dropped deep in the tree. */
+	private scheduleExpand(node: TagNode, open: boolean, hasChildren: boolean): void {
+		const key = node.tag.toLowerCase();
+		if (!hasChildren || open || this.expandTimer?.key === key) return;
+		this.cancelExpand();
+		this.expandTimer = {
+			key,
+			id: window.setTimeout(() => {
+				this.expandTimer = null;
+				this.expanded.add(key);
+				this.renderTree();
+			}, 700),
+		};
+	}
+
+	private cancelExpand(): void {
+		if (this.expandTimer) window.clearTimeout(this.expandTimer.id);
+		this.expandTimer = null;
+	}
+
+	private showDropHint(text: string, ok: boolean): void {
+		this.dropBarEl.setText(text);
+		this.dropBarEl.addClass('is-active');
+		this.dropBarEl.toggleClass('is-invalid', !ok);
+	}
+
+	private endDrag(): void {
+		this.dragged = null;
+		this.cancelExpand();
+		this.dropBarEl.removeClass('is-active', 'is-invalid', 'is-drop-target');
+		this.dropBarEl.empty();
+		this.contentEl.querySelectorAll('.is-dragging, .is-drop-target, .is-drop-invalid').forEach((el) => {
+			el.removeClass('is-dragging', 'is-drop-target', 'is-drop-invalid');
+		});
 	}
 
 	private showMenu(evt: MouseEvent, node: TagNode): void {
