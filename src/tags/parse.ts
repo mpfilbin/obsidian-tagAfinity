@@ -11,7 +11,7 @@ export interface InlineTagMatch {
  * Bumped whenever the rules for what counts as a tag change, so an index built under older rules is refreshed.
  * (1: the original rules; 2: HTML, SVG and links are ignored.)
  */
-export const TAG_PARSER_VERSION = 2;
+export const TAG_PARSER_VERSION = 3; // 1: original; 2: HTML, SVG and links ignored; 3: URLs containing parentheses
 
 const INLINE_TAG = /(?<![\w#&/\\])#([\p{L}\p{N}_\-/]*[\p{L}_\-/][\p{L}\p{N}_\-/]*)/gu;
 
