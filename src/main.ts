@@ -75,7 +75,7 @@ export default class Tagafinity extends Plugin {
 		this.addCommand({
 			id: 'find-untagged-notes',
 			name: 'Find notes without tags',
-			callback: () => this.findUntaggedNotes(),
+			callback: () => this.showUntaggedNotes(),
 		});
 
 		this.addCommand({
@@ -312,7 +312,7 @@ export default class Tagafinity extends Plugin {
 	}
 
 	/** Opens a list of the notes that have no tags, based on the index. */
-	findUntaggedNotes(): void {
+	showUntaggedNotes(): void {
 		if (!this.hasIndex()) {
 			new Notice('The tag index has not been built yet. Build it from the plugin settings or the update command first.');
 			return;
