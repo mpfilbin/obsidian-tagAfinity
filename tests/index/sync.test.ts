@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { EmbeddingProvider } from '../../src/embeddings/provider';
 import { WARM_UP_TEXT, hashContent, syncIndex } from '../../src/index/sync';
 import { emptyIndex, parseIndex, serializeIndex } from '../../src/index/store';
+import { TAG_PARSER_VERSION } from '../../src/tags/parse';
 import { FakeGateway } from '../helpers';
 
 class CountingEmbedder implements EmbeddingProvider {
@@ -296,6 +297,58 @@ describe('syncIndex with modification times', () => {
 			gateway.files['c.md'] = 'three';
 			const second = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: stat({ 'a.md': [1, 3], 'b.md': [1, 3], 'c.md': [1, 5] }) });
 			expect(second.index.docCount).toBe(3);
+		});
+	});
+});
+
+describe('syncIndex and the tag detection rules', () => {
+	const stats = stat({ 'a.md': [1, 30] });
+	const content = '<span style="color:#ff0000">x</span> #real';
+
+	describe('when the index was built under older tag rules', () => {
+		const older = async () => {
+			const gateway = new FakeGateway({ 'a.md': content });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), stats });
+			// Pretend an older release built it: it saw the color as a tag and recorded no rules version.
+			index.tagsVersion = undefined;
+			index.notes['a.md']!.tags = ['ff0000', 'real'];
+			return { gateway, index };
+		};
+
+		it('re-reads notes even though their modification times match', async () => {
+			const { gateway, index } = await older();
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(gateway.reads).toEqual(['a.md']);
+		});
+
+		it('corrects the stored tags', async () => {
+			const { gateway, index } = await older();
+			const next = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(next.index.notes['a.md']!.tags).toEqual(['real']);
+		});
+
+		it('does not re-embed the unchanged notes', async () => {
+			const { gateway, index } = await older();
+			const embedder = new CountingEmbedder();
+			await syncIndex({ gateway, embedder, index, stats });
+			expect(embedder.embedded).toBe(0);
+		});
+
+		it('records the current rules version', async () => {
+			const { gateway, index } = await older();
+			const next = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(next.index.tagsVersion).toBe(TAG_PARSER_VERSION);
+		});
+	});
+
+	describe('when the index was built under the current tag rules', () => {
+		it('still skips notes whose modification times match', async () => {
+			const gateway = new FakeGateway({ 'a.md': content });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), stats });
+			gateway.reads = [];
+			await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats });
+			expect(gateway.reads).toEqual([]);
 		});
 	});
 });

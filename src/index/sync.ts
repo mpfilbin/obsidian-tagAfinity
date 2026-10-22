@@ -5,7 +5,7 @@ import { buildDocFrequenciesAsync, mergeDocFrequencies } from '../text/keywords'
 import { yieldEvery, yieldToUi } from '../yield';
 import { isExcluded } from './exclude';
 import { proseOf } from '../text/tokenize';
-import { extractTags } from '../tags/parse';
+import { TAG_PARSER_VERSION, extractTags } from '../tags/parse';
 import type { IndexData, IndexedNote } from './store';
 import { emptyIndex } from './store';
 import type { IndexPhase } from './progress';
@@ -99,12 +99,16 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const stats: SyncStats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
 	const pending: { path: string; hash: string; content: string }[] = [];
 
+	// Tags stored under older detection rules must be re-derived from the notes (the embeddings stay valid).
+	const tagsStale = previous.tagsVersion !== TAG_PARSER_VERSION && Object.keys(previous.notes).length > 0;
+	if (tagsStale) log.info('index', 'tag detection rules changed since the index was built; re-reading notes to refresh their tags');
+
 	// Notes whose modification time and size match what was indexed need no reading at all.
 	const toRead: string[] = [];
 	for (const path of paths) {
 		const before = previous.notes[path];
 		const stat = options.stats?.get(path);
-		if (!options.full && before && stat && before.mtime === stat.mtime && before.size === stat.size) {
+		if (!options.full && !tagsStale && before && stat && before.mtime === stat.mtime && before.size === stat.size) {
 			notes[path] = before;
 			stats.unchanged++;
 		} else {
@@ -176,6 +180,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 			model: embedder.id,
 			notes,
 			syncedAt: (options.now ?? Date.now)(),
+			tagsVersion: TAG_PARSER_VERSION,
 			docCount: df.docCount,
 			docFreq: df.docFreq,
 		},

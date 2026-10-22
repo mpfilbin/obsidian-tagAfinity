@@ -114,6 +114,29 @@ describe('composeMappers', () => {
 	});
 });
 
+describe('transformTags leaves HTML, SVG and links alone', () => {
+	const rename = renameMapper('fff', 'white');
+
+	describe('when a note has an HTML color and a real tag with the same name', () => {
+		it('renames only the real tag', () => {
+			expect(transformTags('<span style="color:#fff">x</span> #fff', rename)).toBe('<span style="color:#fff">x</span> #white');
+		});
+	});
+
+	describe('when a link anchor matches the renamed tag', () => {
+		it('keeps the link intact', () => {
+			expect(transformTags('[a](page.md#fff) and #fff', rename)).toBe('[a](page.md#fff) and #white');
+		});
+	});
+
+	describe('when an SVG uses the renamed name as an id', () => {
+		it('keeps the SVG intact', () => {
+			const svg = '<svg><g marker-end="url(#fff)"></g></svg>';
+			expect(transformTags(svg, rename)).toBe(svg);
+		});
+	});
+});
+
 describe('removeTreeMapper', () => {
 	it('removes the tag', () => {
 		expect(removeTreeMapper('a')('a')).toBeNull();

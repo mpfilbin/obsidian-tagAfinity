@@ -1,3 +1,5 @@
+import { TAG_PARSER_VERSION } from '../tags/parse';
+
 export interface IndexedNote {
 	/** Obsidian's modification time and size when the note was indexed; used to detect changes without reading it. */
 	mtime?: number;
@@ -14,12 +16,14 @@ export interface IndexData {
 	notes: Record<string, IndexedNote>;
 	/** Epoch milliseconds of the last completed update. */
 	syncedAt?: number;
+	/** The tag detection rules the stored tags were extracted under; see TAG_PARSER_VERSION. */
+	tagsVersion?: number;
 	docCount: number;
 	docFreq: Record<string, number>;
 }
 
 export function emptyIndex(model: string): IndexData {
-	return { version: 1, model, notes: {}, docCount: 0, docFreq: {} };
+	return { version: 1, model, notes: {}, docCount: 0, docFreq: {}, tagsVersion: TAG_PARSER_VERSION };
 }
 
 export interface IndexStorage {

@@ -256,7 +256,8 @@ export default class Tagafinity extends Plugin {
 			return Promise.resolve({ summary, failed: false });
 		}
 		this.syncing ??= (async (): Promise<IndexUpdateResult> => {
-			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''})`);
+			const refreshingTags = this.indexStatus().tagRulesOutdated;
+			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''}${refreshingTags ? ', refreshing tags' : ''})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
 			this.setProgress({ phase: 'preparing', done: 0, total: 0 });
 			try {
@@ -279,7 +280,7 @@ export default class Tagafinity extends Plugin {
 				this.notifyIndexChanged();
 				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
-				const summary = `Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
+				const summary = `Index updated${refreshingTags ? ' and tags refreshed under the new detection rules' : ''}: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
 				if (!quiet) new Notice(summary);
 				return { summary, failed: false };
 			} catch (error) {

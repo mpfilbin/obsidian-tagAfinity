@@ -8,6 +8,12 @@ Suggests tags for the current note based on how its content relates to the rest 
 2. **Suggest** – the notes most similar to the active note vote on their tags. Existing tags are preferred; if too few qualify, new tags are proposed from the note's keywords (TF-IDF against the vault).
 3. **Clean up** – the tag taxonomy is derived from the index: near-duplicate tags (spelling, abbreviations, semantic overlap), tags that could be nested under a broader tag, and rarely used tags. Merge/rename/remove rewrites both frontmatter and inline tags, always with a line-level preview, and can be undone.
 
+## What counts as a tag
+
+Tags in a note's properties and `#tags` in its text. A `#` is **not** treated as a tag where it means something else: inside code, comments (`%%…%%` and `<!-- -->`), HTML tags and their attributes (colors such as `#fff`, ids, `href="#section"`, `url(#id)`), the contents of `<svg>`, `<style>` and `<script>` elements, links (`[text](page#anchor)`, `[[note#heading]]`, bare URLs and autolinks, reference definitions), and HTML entities such as `&#39;`. The visible text of a link and the text between HTML tags can still contain tags. The same rules decide which tags a rename or merge touches, so a color or anchor that happens to match a tag name is never rewritten.
+
+When these rules change between versions, the index notices and re-derives the stored tags on the next update; notes are not re-embedded.
+
 ## Tag tree
 
 "Open tag tree" (or the ribbon icon) shows your tags in the right sidebar as a hierarchy. Counts are distinct notes, so a note is counted once under a parent however many of its nested tags it has; hover a count for the breakdown. Tags that exist only as a parent of nested tags are shown in italics. Use the filter box (several words must all match), the sort button (note count or name), and expand/collapse all. Click a tag to list its notes below the tree and click a note to open it (Ctrl/Cmd-click for a new tab). The tree refreshes when the index changes.

@@ -51,6 +51,142 @@ describe('findInlineTags', () => {
 	});
 });
 
+describe('findInlineTags in HTML, SVG and links', () => {
+	const tags = (text: string) => findInlineTags(text).map((m) => m.tag);
+
+	describe('when a hash is an HTML color in an attribute', () => {
+		it('is not a tag', () => {
+			expect(tags('<span style="color:#ff0000">warning</span>')).toEqual([]);
+		});
+	});
+
+	describe('when a hash is an anchor in an HTML attribute', () => {
+		it('is not a tag', () => {
+			expect(tags('<a href="#section">jump</a>')).toEqual([]);
+		});
+	});
+
+	describe('when a hash is inside an SVG element', () => {
+		it('is not a tag', () => {
+			expect(tags('<svg viewBox="0 0 10 10"><path fill="#abc"/><text>#label</text></svg>')).toEqual([]);
+		});
+	});
+
+	describe('when an SVG spans several lines', () => {
+		it('ignores every hash in it', () => {
+			expect(tags('<svg>\n<g marker-end="url(#arrow)">\n<text>#inside</text>\n</g>\n</svg>')).toEqual([]);
+		});
+	});
+
+	describe('when a hash references an SVG id', () => {
+		it('is not a tag', () => {
+			expect(tags('<g marker-end="url(#_r_q__flowchart-v2-pointEnd)"></g>')).toEqual([]);
+		});
+	});
+
+	describe('when a style block has selectors and colors', () => {
+		it('ignores them', () => {
+			expect(tags('<style>\n#header { color: #333 }\n</style>')).toEqual([]);
+		});
+	});
+
+	describe('when a script block has hashes', () => {
+		it('ignores them', () => {
+			expect(tags('<script>const color = "#ff0000"; // #todo</script>')).toEqual([]);
+		});
+	});
+
+	describe('when a hash is inside an HTML comment', () => {
+		it('is not a tag', () => {
+			expect(tags('<!-- #todo later -->')).toEqual([]);
+		});
+	});
+
+	describe('when a real tag follows HTML on the same line', () => {
+		it('is still found', () => {
+			expect(tags('<b>bold</b> #real')).toEqual(['real']);
+		});
+	});
+
+	describe('when a tag is in the text of an ordinary HTML element', () => {
+		it('is still found', () => {
+			expect(tags('<p>some text #real</p>')).toEqual(['real']);
+		});
+	});
+
+	describe('when a less-than sign is just punctuation', () => {
+		it('does not hide the tags after it', () => {
+			expect(tags('if a < b then #real')).toEqual(['real']);
+		});
+	});
+
+	describe('when a Markdown link points at an anchor', () => {
+		it('is not a tag', () => {
+			expect(tags('[see this](page.md#section)')).toEqual([]);
+		});
+	});
+
+	describe('when a Markdown link target is wrapped in angle brackets', () => {
+		it('is not a tag', () => {
+			expect(tags('[see this](<my page.md#section>)')).toEqual([]);
+		});
+	});
+
+	describe('when the link text itself contains a tag', () => {
+		it('is still found', () => {
+			expect(tags('[#real](https://example.com)')).toEqual(['real']);
+		});
+	});
+
+	describe('when an autolink has a fragment', () => {
+		it('is not a tag', () => {
+			expect(tags('<https://example.com/#frag>')).toEqual([]);
+		});
+	});
+
+	describe('when a bare URL has a fragment', () => {
+		it('is not a tag', () => {
+			expect(tags('read https://example.com/page?a=1#frag today')).toEqual([]);
+		});
+	});
+
+	describe('when a bare www URL has a fragment', () => {
+		it('is not a tag', () => {
+			expect(tags('read www.example.com/#frag today')).toEqual([]);
+		});
+	});
+
+	describe('when a reference-style link definition has an anchor', () => {
+		it('is not a tag', () => {
+			expect(tags('[ref]: https://example.com/#frag "Title"')).toEqual([]);
+		});
+	});
+
+	describe('when a reference-style link points at a heading anchor', () => {
+		it('is not a tag', () => {
+			expect(tags('[ref]: #heading')).toEqual([]);
+		});
+	});
+
+	describe('when a footnote definition contains a tag', () => {
+		it('is still found, since a footnote is not a link definition', () => {
+			expect(tags('[^1]: a note about #real things')).toEqual(['real']);
+		});
+	});
+
+	describe('when a tag follows a URL on the same line', () => {
+		it('is still found', () => {
+			expect(tags('see https://example.com/page then #real')).toEqual(['real']);
+		});
+	});
+
+	describe('when an HTML entity looks like a hash reference', () => {
+		it('is not a tag', () => {
+			expect(tags('it&#39;s &#x1F600; fine')).toEqual([]);
+		});
+	});
+});
+
 describe('extractTags', () => {
 	describe('when frontmatter uses a block list', () => {
 		it('reads each item', () => {
