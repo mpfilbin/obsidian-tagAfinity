@@ -17,6 +17,8 @@ import { SuggestTagsModal } from './ui/suggest-modal';
 import { ObsidianVaultGateway } from './vault/obsidian-gateway';
 import type { VaultGateway } from './vault/gateway';
 import { CleanupModal } from './ui/cleanup-modal';
+import { findUntaggedNotes } from './taxonomy/untagged';
+import { UntaggedNotesModal } from './ui/untagged-notes-modal';
 import { TAG_TREE_VIEW, TagTreeView } from './ui/tag-tree-view';
 
 /** What an index update did, for callers that want to report it. */
@@ -68,6 +70,12 @@ export default class Tagafinity extends Plugin {
 				}
 				new CleanupModal(this.app, this).open();
 			},
+		});
+
+		this.addCommand({
+			id: 'find-untagged-notes',
+			name: 'Find notes without tags',
+			callback: () => this.showUntaggedNotes(),
 		});
 
 		this.addCommand({
@@ -301,6 +309,22 @@ export default class Tagafinity extends Plugin {
 			}
 		})();
 		return this.syncing;
+	}
+
+	/** Opens a list of the notes that have no tags, based on the index. */
+	showUntaggedNotes(): void {
+		if (!this.hasIndex()) {
+			new Notice('The tag index has not been built yet. Build it from the plugin settings or the update command first.');
+			return;
+		}
+		const paths = findUntaggedNotes(this.index);
+		const behind = pendingChanges(this.indexStatus()) > 0 ? ' The index is behind the vault, so update it for an exact list.' : '';
+		if (paths.length === 0) {
+			new Notice(`Every indexed note has at least one tag.${behind}`);
+			return;
+		}
+		if (behind) new Notice(`Showing untagged notes from the last index update.${behind}`);
+		new UntaggedNotesModal(this.app, paths).open();
 	}
 
 	/** Applies a previewed plan, records undo data and keeps the index current. */
