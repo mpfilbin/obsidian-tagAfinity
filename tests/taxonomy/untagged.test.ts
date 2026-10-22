@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterNotePaths, findUntaggedNotes } from '../../src/taxonomy/untagged';
+import { describeUntaggedCount, filterNotePaths, findUntaggedNotes } from '../../src/taxonomy/untagged';
 import { indexOf } from '../helpers';
 
 describe('findUntaggedNotes', () => {
@@ -59,9 +59,49 @@ describe('filterNotePaths', () => {
 		});
 	});
 
+	describe('when no limit is given', () => {
+		it('returns every match', () => {
+			expect(filterNotePaths(Array.from({ length: 300 }, (_, i) => `n${i}.md`), 'n')).toHaveLength(300);
+		});
+	});
+
 	describe('when more paths match than the limit', () => {
 		it('stops at the limit', () => {
 			expect(filterNotePaths(paths, 'md', 2)).toHaveLength(2);
+		});
+	});
+});
+
+describe('describeUntaggedCount', () => {
+	describe('when nothing is filtered', () => {
+		describe('when there are several notes', () => {
+			it('gives the total', () => {
+				expect(describeUntaggedCount(300, 300, false)).toBe('300 notes without tags');
+			});
+		});
+
+		describe('when there is one note', () => {
+			it('uses the singular', () => {
+				expect(describeUntaggedCount(1, 1, false)).toBe('1 note without tags');
+			});
+		});
+
+		describe('when there are none', () => {
+			it('says every note has a tag', () => {
+				expect(describeUntaggedCount(0, 0, false)).toBe('Every indexed note has at least one tag');
+			});
+		});
+	});
+
+	describe('when a filter hides some notes', () => {
+		it('gives shown and total', () => {
+			expect(describeUntaggedCount(300, 12, false)).toBe('12 of 300 notes without tags');
+		});
+	});
+
+	describe('when the index is behind the vault', () => {
+		it('says the list may be out of date', () => {
+			expect(describeUntaggedCount(300, 300, true)).toBe('300 notes without tags (the index is behind the vault: update it for an exact list)');
 		});
 	});
 });

@@ -1,4 +1,4 @@
-import { DropdownComponent, ExtraButtonComponent, ItemView, Keymap, Menu, Notice, TFile, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { DropdownComponent, ExtraButtonComponent, ItemView, Menu, Notice, setIcon, type WorkspaceLeaf } from 'obsidian';
 import { resolveDrop } from '../cleanup/drop';
 import {
 	isSameOrDescendant,
@@ -12,6 +12,7 @@ import {
 import type Tagafinity from '../main';
 import { buildTree, collectTagStats, type TagNode } from '../taxonomy/build';
 import { allTagPaths, defaultExpanded, filterTree, sortTree, type TreeSort } from '../taxonomy/tree-view';
+import { openNote } from './open-note';
 import { previewActions } from './preview-actions';
 import { PromptModal } from './prompt-modal';
 import { TagPickerModal } from './tag-picker-modal';
@@ -524,13 +525,9 @@ export class TagTreeView extends ItemView {
 			const item = list.createDiv({ cls: 'tagafinity-note', attr: { tabindex: '0', role: 'link' } });
 			item.createSpan({ text: path.slice(slash + 1).replace(/\.md$/i, '') });
 			if (slash >= 0) item.createSpan({ cls: 'tagafinity-note-folder', text: path.slice(0, slash) });
-			const open = (evt: Event): void => {
-				const file = this.app.vault.getAbstractFileByPath(path);
-				if (file instanceof TFile) void this.app.workspace.getLeaf(evt instanceof MouseEvent ? Keymap.isModEvent(evt) : false).openFile(file);
-			};
-			item.addEventListener('click', open);
+			item.addEventListener('click', (evt) => openNote(this.app, path, evt));
 			item.addEventListener('keydown', (evt) => {
-				if (evt.key === 'Enter') open(evt);
+				if (evt.key === 'Enter') openNote(this.app, path, evt);
 			});
 		}
 		if (paths.length > NOTE_LIST_LIMIT) {
