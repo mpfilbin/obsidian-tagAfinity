@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { computeIndexStatus, describeIndexStatus } from '../../src/index/status';
+import { computeIndexStatus, describeIndexStatus, pendingChanges } from '../../src/index/status';
 import { emptyIndex, type IndexData } from '../../src/index/store';
+import { TAG_PARSER_VERSION } from '../../src/tags/parse';
 
 function index(notes: Record<string, { mtime?: number; size?: number }>, syncedAt?: number): IndexData {
 	const out = emptyIndex('m');
@@ -65,25 +66,63 @@ describe('computeIndexStatus', () => {
 	});
 });
 
+describe('computeIndexStatus and the tag detection rules', () => {
+	const withNote = (tagsVersion: number | undefined): IndexData => {
+		const out = index({ 'a.md': { mtime: 1, size: 1 } });
+		out.tagsVersion = tagsVersion;
+		return out;
+	};
+	const current = new Map([['a.md', { mtime: 1, size: 1 }]]);
+
+	describe('when the index was built under older tag rules', () => {
+		it('reports that the tags need refreshing', () => {
+			expect(computeIndexStatus(withNote(undefined), current, []).tagRulesOutdated).toBe(true);
+		});
+
+		it('counts as a pending change', () => {
+			expect(pendingChanges(computeIndexStatus(withNote(undefined), current, []))).toBe(1);
+		});
+	});
+
+	describe('when the index was built under the current tag rules', () => {
+		it('reports nothing to refresh', () => {
+			expect(computeIndexStatus(withNote(TAG_PARSER_VERSION), current, []).tagRulesOutdated).toBe(false);
+		});
+	});
+
+	describe('when the index is empty', () => {
+		it('does not report outdated rules, because there is nothing to refresh', () => {
+			expect(computeIndexStatus(emptyIndex('m'), new Map(), []).tagRulesOutdated).toBe(false);
+		});
+	});
+});
+
 describe('describeIndexStatus', () => {
 	const now = new Date('2026-10-20T12:00:00Z').getTime();
 
 	describe('when the index has never been built', () => {
 		it('says so', () => {
-			expect(describeIndexStatus({ added: [], changed: [], removed: [], syncedAt: undefined, indexed: 0 }, now)).toBe('The index has not been built yet.');
+			expect(describeIndexStatus({ added: [], changed: [], removed: [], syncedAt: undefined, indexed: 0, tagRulesOutdated: false }, now)).toBe('The index has not been built yet.');
 		});
 	});
 
 	describe('when notes changed since the last update', () => {
 		it('summarizes the changes and the age', () => {
-			const text = describeIndexStatus({ added: ['a'], changed: ['b', 'c'], removed: [], syncedAt: now - 3 * 3600_000, indexed: 700 }, now);
+			const text = describeIndexStatus({ added: ['a'], changed: ['b', 'c'], removed: [], syncedAt: now - 3 * 3600_000, indexed: 700, tagRulesOutdated: false }, now);
 			expect(text).toBe('Index updated 3 hours ago; 3 notes changed since (2 modified, 1 new).');
 		});
 	});
 
 	describe('when nothing changed', () => {
 		it('says it is up to date', () => {
-			expect(describeIndexStatus({ added: [], changed: [], removed: [], syncedAt: now - 60_000, indexed: 700 }, now)).toBe('Index is up to date (updated 1 minute ago, 700 notes).');
+			expect(describeIndexStatus({ added: [], changed: [], removed: [], syncedAt: now - 60_000, indexed: 700, tagRulesOutdated: false }, now)).toBe('Index is up to date (updated 1 minute ago, 700 notes).');
+		});
+	});
+
+	describe('when the tag detection rules changed', () => {
+		it('says the tags will be refreshed without re-embedding', () => {
+			const text = describeIndexStatus({ added: [], changed: [], removed: [], syncedAt: now - 60_000, indexed: 700, tagRulesOutdated: true }, now);
+			expect(text).toBe('Index updated 1 minute ago, but tag detection has improved: update the index to refresh the tags (notes are not re-embedded).');
 		});
 	});
 });

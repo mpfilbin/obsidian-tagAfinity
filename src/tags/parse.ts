@@ -7,21 +7,43 @@ export interface InlineTagMatch {
 	index: number;
 }
 
+/**
+ * Bumped whenever the rules for what counts as a tag change, so an index built under older rules is refreshed.
+ * (1: the original rules; 2: HTML, SVG and links are ignored; 3: URLs containing parentheses are ignored.)
+ */
+export const TAG_PARSER_VERSION = 3;
+
 const INLINE_TAG = /(?<![\w#&/\\])#([\p{L}\p{N}_\-/]*[\p{L}_\-/][\p{L}\p{N}_\-/]*)/gu;
 
 function blank(match: string): string {
 	return match.replace(/[^\n]/g, ' ');
 }
 
-/** Replaces regions that cannot contain tags (code, links, comments) with spaces, preserving offsets. */
+/**
+ * Replaces regions where a "#" is not a tag with spaces, preserving offsets: code, comments, HTML (a "#" there is
+ * a color, an id or an anchor), SVG, and links (a "#" there is an anchor). The text between HTML tags, and the
+ * visible text of a link, can still contain tags.
+ */
 export function maskNonTagRegions(text: string): string {
 	return text
+		// Code
 		.replace(/```[\s\S]*?(```|$)/g, blank)
 		.replace(/~~~[\s\S]*?(~~~|$)/g, blank)
 		.replace(/`[^`\n]*`/g, blank)
+		// Comments
 		.replace(/%%[\s\S]*?%%/g, blank)
+		.replace(/<!--[\s\S]*?-->/g, blank)
+		// HTML whose whole content is not prose: SVG drawings, stylesheets and scripts
+		.replace(/<(svg|style|script)\b[\s\S]*?<\/\1\s*>/gi, blank)
+		// Every other HTML tag, attributes included (colors such as "#fff", ids, href="#section", url(#id)) and autolinks
+		.replace(/<\/?[A-Za-z][^<>]*>/g, blank)
+		// Links: Obsidian wikilinks and embeds, Markdown link targets (also in angle brackets), reference definitions
 		.replace(/\[\[[^\]]*\]\]/g, blank)
-		.replace(/\]\([^)]*\)/g, blank);
+		.replace(/\]\(<[^>]*>[^)]*\)/g, blank)
+		.replace(/\]\((?:[^()\n]|\([^()\n]*\))*\)/g, blank)
+		.replace(/^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:[^\n]*/gm, blank)
+		// Bare URLs
+		.replace(/\b(?:https?:\/\/|www\.)(?:[^\s<>()\]]|\([^\s<>()]*\))+/gi, blank);
 }
 
 export function findInlineTags(text: string): InlineTagMatch[] {
