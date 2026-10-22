@@ -9,6 +9,8 @@ Suggests tags for the current note based on how its content relates to the rest 
 3. **Clean up** – the tag taxonomy is derived from the index: near-duplicate tags (spelling, abbreviations, semantic overlap), tags that could be nested under a broader tag, and rarely used tags. Merge/rename/remove rewrites both frontmatter and inline tags, always with a line-level preview, and can be undone.
 4. **Find untagged notes** – "Find notes without tags" lists every indexed note that has no tags at all (neither in properties nor in the text), filterable by path; pick one to open it, then run "Suggest tags for current note". The list comes from the index, so update the index first if notes changed (the command tells you when it is behind).
 
+The sliders under **Suggestions** in the plugin settings tune this: each one is explained there, with what a lower or higher value does and its default.
+
 ## What counts as a tag
 
 Tags in a note's properties and `#tags` in its text. A `#` is **not** treated as a tag where it means something else: inside code, comments (`%%…%%` and `<!-- -->`), HTML tags and their attributes (colors such as `#fff`, ids, `href="#section"`, `url(#id)`), the contents of `<svg>`, `<style>` and `<script>` elements, links (`[text](page#anchor)`, `[[note#heading]]`, bare URLs and autolinks, reference definitions), and HTML entities such as `&#39;`. The visible text of a link and the text between HTML tags can still contain tags. The same rules decide which tags a rename or merge touches, so a color or anchor that happens to match a tag name is never rewritten.

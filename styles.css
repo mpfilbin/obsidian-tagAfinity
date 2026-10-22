@@ -66,6 +66,22 @@
 	margin-top: var(--size-4-3);
 }
 
+/* Settings help */
+.tagafinity-settings-overview ol {
+	margin: 0;
+	padding-left: var(--size-4-5);
+}
+
+.tagafinity-setting-effects {
+	margin-top: var(--size-4-1);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.tagafinity-setting-default {
+	font-style: italic;
+}
+
 /* Tag tree view */
 .tagafinity-tree-view {
 	display: flex;

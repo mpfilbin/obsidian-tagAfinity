@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, type ButtonComponent } from 'obsidian';
 import { describeProgress, progressFraction, type IndexProgress } from './index/progress';
 import type Tagafinity from './main';
 import { DEFAULT_MODEL } from './embeddings/transformers';
+import { SUGGESTION_OVERVIEW, SUGGESTION_SETTING_HELP, formatDefault, type SuggestionSettingKey } from './settings-help';
 
 export interface TagafinitySettings {
 	embeddingModel: string;
@@ -49,14 +50,19 @@ export class TagafinitySettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName('Suggestions').setHeading();
 
-		this.slider('Similar notes to consider', 'How many nearest notes vote on tags.', 'neighbors', 3, 30, 1);
-		this.slider('Minimum note similarity', 'Notes less similar than this are ignored.', 'minSimilarity', 0.1, 0.8, 0.05);
-		this.slider('Minimum tag score', 'Existing tags scoring below this are hidden.', 'minScore', 0.05, 0.9, 0.05);
-		this.slider('Maximum suggestions', 'Upper limit of tags shown.', 'maxSuggestions', 3, 20, 1);
+		const overview = containerEl.createDiv({ cls: 'tagafinity-settings-overview setting-item-description' });
+		overview.createEl('p', { text: 'How suggestions are made, and where each setting below comes in:' });
+		const steps = overview.createEl('ol');
+		for (const step of SUGGESTION_OVERVIEW) steps.createEl('li', { text: step });
+
+		this.slider('Similar notes to consider', 'neighbors', 3, 30, 1);
+		this.slider('Minimum note similarity', 'minSimilarity', 0.1, 0.8, 0.05);
+		this.slider('Minimum tag score', 'minScore', 0.05, 0.9, 0.05);
+		this.slider('Maximum suggestions', 'maxSuggestions', 3, 20, 1);
 
 		new Setting(containerEl)
 			.setName('Suggest new tags')
-			.setDesc('When too few existing tags fit, propose new tags from the note’s keywords.')
+			.setDesc('When fewer than three existing tags qualify, also propose new tags built from the note’s most distinctive keywords. A keyword that matches a tag you already use is suggested as that existing tag instead. Turn off to only ever suggest tags that exist in your vault.')
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.allowNewTags).onChange(async (value) => {
 					this.plugin.settings.allowNewTags = value;
@@ -64,7 +70,7 @@ export class TagafinitySettingTab extends PluginSettingTab {
 				}),
 			);
 
-		this.slider('Maximum new tags', 'Upper limit of newly proposed tags.', 'maxNewTags', 1, 5, 1);
+		this.slider('Maximum new tags', 'maxNewTags', 1, 5, 1);
 
 		new Setting(containerEl).setName('Index').setHeading();
 
@@ -189,17 +195,11 @@ export class TagafinitySettingTab extends PluginSettingTab {
 			.addButton((button) => button.setButtonText('Copy').onClick(() => void this.plugin.copyDebugLog()));
 	}
 
-	private slider(
-		name: string,
-		desc: string,
-		key: 'neighbors' | 'minSimilarity' | 'minScore' | 'maxSuggestions' | 'maxNewTags',
-		min: number,
-		max: number,
-		step: number,
-	): void {
-		new Setting(this.containerEl)
+	private slider(name: string, key: SuggestionSettingKey, min: number, max: number, step: number): void {
+		const help = SUGGESTION_SETTING_HELP[key];
+		const setting = new Setting(this.containerEl)
 			.setName(name)
-			.setDesc(desc)
+			.setDesc(help.what)
 			.addSlider((slider) =>
 				slider
 					.setLimits(min, max, step)
@@ -210,5 +210,9 @@ export class TagafinitySettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+		const effects = setting.descEl.createDiv({ cls: 'tagafinity-setting-effects' });
+		effects.createDiv({ text: `Lower: ${help.lower}` });
+		effects.createDiv({ text: `Higher: ${help.higher}` });
+		effects.createDiv({ cls: 'tagafinity-setting-default', text: formatDefault(key, DEFAULT_SETTINGS) });
 	}
 }
