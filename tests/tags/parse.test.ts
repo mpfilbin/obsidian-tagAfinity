@@ -126,6 +126,18 @@ describe('findInlineTags in HTML, SVG and links', () => {
 		});
 	});
 
+	describe('when a Markdown link URL contains parentheses', () => {
+		it('ignores the fragment after them', () => {
+			expect(tags('[^](https://en.wikipedia.org/wiki/Covariance_(computer_science)#cite_ref-28 "Jump up")')).toEqual([]);
+		});
+	});
+
+	describe('when a bare URL contains parentheses', () => {
+		it('ignores the fragment after them', () => {
+			expect(tags('see https://en.wikipedia.org/wiki/Covariance_(computer_science)#cite_ref-28 now')).toEqual([]);
+		});
+	});
+
 	describe('when a Markdown link target is wrapped in angle brackets', () => {
 		it('is not a tag', () => {
 			expect(tags('[see this](<my page.md#section>)')).toEqual([]);

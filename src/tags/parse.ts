@@ -40,10 +40,10 @@ export function maskNonTagRegions(text: string): string {
 		// Links: Obsidian wikilinks and embeds, Markdown link targets (also in angle brackets), reference definitions
 		.replace(/\[\[[^\]]*\]\]/g, blank)
 		.replace(/\]\(<[^>]*>[^)]*\)/g, blank)
-		.replace(/\]\([^)]*\)/g, blank)
+		.replace(/\]\((?:[^()\n]|\([^()\n]*\))*\)/g, blank)
 		.replace(/^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:[^\n]*/gm, blank)
 		// Bare URLs
-		.replace(/\b(?:https?:\/\/|www\.)[^\s<>)\]]+/gi, blank);
+		.replace(/\b(?:https?:\/\/|www\.)(?:[^\s<>()\]]|\([^\s<>()]*\))+/gi, blank);
 }
 
 export function findInlineTags(text: string): InlineTagMatch[] {
