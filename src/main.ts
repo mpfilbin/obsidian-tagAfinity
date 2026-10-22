@@ -280,7 +280,13 @@ export default class Tagafinity extends Plugin {
 				this.notifyIndexChanged();
 				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
-				const summary = `Index updated${refreshingTags ? ' and tags refreshed under the new detection rules' : ''}: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
+				const corrected =
+					stats.retagged > 0
+						? ` Tags corrected in ${stats.retagged} ${stats.retagged === 1 ? 'note' : 'notes'}; no longer tags: ${stats.droppedTags.slice(0, 5).map((t) => '#' + t).join(' ')}${stats.droppedTags.length > 5 ? ' …' : ''}.`
+						: refreshingTags
+							? ' No tags needed correcting.'
+							: '';
+				const summary = `Index updated${refreshingTags ? ' under the new tag detection rules' : ''}: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.${corrected}`;
 				if (!quiet) new Notice(summary);
 				return { summary, failed: false };
 			} catch (error) {

@@ -342,6 +342,36 @@ describe('syncIndex and the tag detection rules', () => {
 		});
 	});
 
+	describe('reporting corrected tags', () => {
+		const stale = async () => {
+			const gateway = new FakeGateway({ 'a.md': content, 'b.md': 'plain #kept' });
+			const both = stat({ 'a.md': [1, 30], 'b.md': [1, 11] });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), stats: both });
+			index.tagsVersion = undefined;
+			index.notes['a.md']!.tags = ['ff0000', 'real'];
+			return { gateway, index, both };
+		};
+
+		it('counts notes whose content is unchanged but whose tags changed', async () => {
+			const { gateway, index, both } = await stale();
+			expect((await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: both })).stats.retagged).toBe(1);
+		});
+
+		it('lists the tags that are no longer detected', async () => {
+			const { gateway, index, both } = await stale();
+			expect((await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats: both })).stats.droppedTags).toEqual(['ff0000']);
+		});
+	});
+
+	describe('when no tag changes under the current rules', () => {
+		it('reports no corrected notes', async () => {
+			const gateway = new FakeGateway({ 'a.md': content });
+			const { index } = await syncIndex({ gateway, embedder: new CountingEmbedder(), index: emptyIndex('fake'), stats });
+			const next = await syncIndex({ gateway, embedder: new CountingEmbedder(), index, stats, full: true });
+			expect(next.stats.retagged).toBe(0);
+		});
+	});
+
 	describe('when the index was built under the current tag rules', () => {
 		it('still skips notes whose modification times match', async () => {
 			const gateway = new FakeGateway({ 'a.md': content });

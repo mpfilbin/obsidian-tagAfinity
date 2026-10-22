@@ -15,6 +15,10 @@ export interface SyncStats {
 	updated: number;
 	removed: number;
 	unchanged: number;
+	/** Notes whose content did not change but whose detected tags did, e.g. after the tag rules improved. */
+	retagged: number;
+	/** Tags that were stored for such notes and are no longer detected (distinct, capped). */
+	droppedTags: string[];
 }
 
 export interface NoteStat {
@@ -96,7 +100,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const paths = listed.filter((path) => !isExcluded(path, exclude));
 	log.info('index', `vault has ${listed.length} notes; indexing ${paths.length} (${listed.length - paths.length} excluded)`, { batchSize, concurrency });
 	const notes: Record<string, IndexedNote> = {};
-	const stats: SyncStats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
+	const stats: SyncStats = { added: 0, updated: 0, removed: 0, unchanged: 0, retagged: 0, droppedTags: [] };
 	const pending: { path: string; hash: string; content: string }[] = [];
 
 	// Tags stored under older detection rules must be re-derived from the notes (the embeddings stay valid).
@@ -135,8 +139,16 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 		const before = previous.notes[path];
 		const stat = options.stats?.get(path);
 		if (before && before.hash === hash) {
-			notes[path] = { ...before, tags: extractTags(content).all, mtime: stat?.mtime, size: stat?.size };
+			const tags = extractTags(content).all;
+			notes[path] = { ...before, tags, mtime: stat?.mtime, size: stat?.size };
 			stats.unchanged++;
+			const kept = new Set(tags.map((t) => t.toLowerCase()));
+			const dropped = before.tags.filter((t) => !kept.has(t.toLowerCase()));
+			const added = tags.some((t) => !before.tags.some((b) => b.toLowerCase() === t.toLowerCase()));
+			if (dropped.length > 0 || added) stats.retagged++;
+			for (const tag of dropped) {
+				if (stats.droppedTags.length < 20 && !stats.droppedTags.includes(tag)) stats.droppedTags.push(tag);
+			}
 		} else {
 			pending.push({ path, hash, content });
 			if (before) stats.updated++;
@@ -146,6 +158,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	const pathSet = new Set(paths);
 	stats.removed = Object.keys(previous.notes).filter((p) => !pathSet.has(p)).length;
 
+	if (stats.retagged > 0) log.info('index', `tags corrected in ${stats.retagged} notes; no longer tags: ${stats.droppedTags.map((t) => '#' + t).join(' ')}`);
 	log.info('index', `${pending.length} notes need embedding (${stats.unchanged} unchanged)`);
 	let embedded = 0;
 	let batches = 0;
