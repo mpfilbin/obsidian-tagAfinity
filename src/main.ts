@@ -17,8 +17,7 @@ import { SuggestTagsModal } from './ui/suggest-modal';
 import { ObsidianVaultGateway } from './vault/obsidian-gateway';
 import type { VaultGateway } from './vault/gateway';
 import { CleanupModal } from './ui/cleanup-modal';
-import { findUntaggedNotes } from './taxonomy/untagged';
-import { UntaggedNotesModal } from './ui/untagged-notes-modal';
+import { UNTAGGED_NOTES_VIEW, UntaggedNotesView } from './ui/untagged-notes-view';
 import { TAG_TREE_VIEW, TagTreeView } from './ui/tag-tree-view';
 
 /** What an index update did, for callers that want to report it. */
@@ -54,6 +53,7 @@ export default class Tagafinity extends Plugin {
 
 		this.registerView(TAG_TREE_VIEW, (leaf) => new TagTreeView(leaf, this));
 		this.addRibbonIcon('tags', 'Open tag tree', () => void this.openTagTree());
+		this.registerView(UNTAGGED_NOTES_VIEW, (leaf) => new UntaggedNotesView(leaf, this));
 		this.addCommand({
 			id: 'open-tag-tree',
 			name: 'Open tag tree',
@@ -75,7 +75,7 @@ export default class Tagafinity extends Plugin {
 		this.addCommand({
 			id: 'find-untagged-notes',
 			name: 'Find notes without tags',
-			callback: () => this.showUntaggedNotes(),
+			callback: () => void this.openUntaggedNotes(),
 		});
 
 		this.addCommand({
@@ -311,20 +311,15 @@ export default class Tagafinity extends Plugin {
 		return this.syncing;
 	}
 
-	/** Opens a list of the notes that have no tags, based on the index. */
-	showUntaggedNotes(): void {
-		if (!this.hasIndex()) {
-			new Notice('The tag index has not been built yet. Build it from the plugin settings or the update command first.');
-			return;
+	/** Shows the notes without tags in the right sidebar, reusing an open panel. */
+	async openUntaggedNotes(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(UNTAGGED_NOTES_VIEW)[0] ?? null;
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false);
+			await leaf?.setViewState({ type: UNTAGGED_NOTES_VIEW, active: true });
 		}
-		const paths = findUntaggedNotes(this.index);
-		const behind = pendingChanges(this.indexStatus()) > 0 ? ' The index is behind the vault, so update it for an exact list.' : '';
-		if (paths.length === 0) {
-			new Notice(`Every indexed note has at least one tag.${behind}`);
-			return;
-		}
-		if (behind) new Notice(`Showing untagged notes from the last index update.${behind}`);
-		new UntaggedNotesModal(this.app, paths).open();
+		if (leaf) await workspace.revealLeaf(leaf);
 	}
 
 	/** Applies a previewed plan, records undo data and keeps the index current. */
