@@ -67,7 +67,7 @@ export function suggestTags(input: SuggestInput): TagSuggestion[] {
 	const votes = new Map<string, { weight: number; evidence: Neighbor[] }>();
 	for (const neighbor of neighbors) {
 		const weight = neighbor.similarity ** 2;
-		for (const tag of index.notes[neighbor.path]!.tags) {
+		for (const tag of index.notes[neighbor.path].tags) {
 			const key = tag.toLowerCase();
 			const entry = votes.get(key) ?? { weight: 0, evidence: [] };
 			entry.weight += weight;
@@ -105,7 +105,7 @@ function keywordSuggestions(
 ): TagSuggestion[] {
 	const keywords = extractKeywords(input.queryContent, input.index, 12);
 	if (keywords.length === 0) return [];
-	const top = keywords[0]!.score;
+	const top = keywords[0].score;
 
 	const byCanonical = new Map<string, string>();
 	for (const [key, entry] of vaultTags) byCanonical.set(canonicalKey(key), entry.display);

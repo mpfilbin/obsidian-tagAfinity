@@ -38,8 +38,8 @@ function diffMiddle(a: string[], b: string[], offset: number): LineChange[] {
 	const table: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
 	for (let i = a.length - 1; i >= 0; i--) {
 		for (let j = b.length - 1; j >= 0; j--) {
-			table[i]![j] =
-				a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+			table[i][j] =
+				a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
 		}
 	}
 
@@ -50,15 +50,15 @@ function diffMiddle(a: string[], b: string[], offset: number): LineChange[] {
 		if (a[i] === b[j]) {
 			i++;
 			j++;
-		} else if (table[i + 1]![j]! >= table[i]![j + 1]!) {
-			changes.push({ type: '-', line: offset + i + 1, text: a[i]! });
+		} else if (table[i + 1][j] >= table[i][j + 1]) {
+			changes.push({ type: '-', line: offset + i + 1, text: a[i] });
 			i++;
 		} else {
-			changes.push({ type: '+', line: offset + j + 1, text: b[j]! });
+			changes.push({ type: '+', line: offset + j + 1, text: b[j] });
 			j++;
 		}
 	}
-	for (; i < a.length; i++) changes.push({ type: '-', line: offset + i + 1, text: a[i]! });
-	for (; j < b.length; j++) changes.push({ type: '+', line: offset + j + 1, text: b[j]! });
+	for (; i < a.length; i++) changes.push({ type: '-', line: offset + i + 1, text: a[i] });
+	for (; j < b.length; j++) changes.push({ type: '+', line: offset + j + 1, text: b[j] });
 	return changes;
 }

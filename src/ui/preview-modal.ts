@@ -50,9 +50,9 @@ export class PreviewModal extends Modal {
 
 			const details = row.createEl('details');
 			details.createEl('summary', { text: `${file.path} (${file.changes.length} lines)` });
-			const diff = details.createEl('div', { cls: 'tagafinity-diff' });
+			const diff = details.createDiv({ cls: 'tagafinity-diff' });
 			for (const change of file.changes) {
-				diff.createEl('div', {
+				diff.createDiv({
 					cls: change.type === '+' ? 'tagafinity-diff-add' : 'tagafinity-diff-remove',
 					text: `${change.type} ${change.line}: ${change.text}`,
 				});
@@ -63,7 +63,7 @@ export class PreviewModal extends Modal {
 		const setAll = (checked: boolean): void => {
 			boxes.forEach((box, i) => {
 				box.checked = checked;
-				const path = this.plan.files[i]!.path;
+				const path = this.plan.files[i].path;
 				if (checked) this.chosen.add(path);
 				else this.chosen.delete(path);
 			});

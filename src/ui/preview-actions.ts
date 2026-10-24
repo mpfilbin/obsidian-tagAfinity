@@ -8,7 +8,7 @@ import { PreviewModal } from './preview-modal';
 
 /** `1 change` / `3 changes: A; B; C` / `5 changes: A; B; C; …` */
 export function describeActions(actions: TagAction[]): string {
-	if (actions.length === 1) return actions[0]!.description;
+	if (actions.length === 1) return actions[0].description;
 	const shown = actions.slice(0, 3).map((a) => a.description).join('; ');
 	return `${actions.length} changes: ${shown}${actions.length > 3 ? '; …' : ''}`;
 }

@@ -71,7 +71,7 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
 	const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
 		while (next < items.length) {
 			const i = next++;
-			results[i] = await fn(items[i]!);
+			results[i] = await fn(items[i]);
 			tick();
 		}
 	});
@@ -126,7 +126,7 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 	);
 
 	toRead.forEach((path, i) => {
-		const content = contents[i]!;
+		const content = contents[i];
 		const hash = hashContent(content);
 		const before = previous.notes[path];
 		const stat = options.stats?.get(path);
@@ -152,13 +152,13 @@ export async function syncIndex(options: SyncOptions): Promise<{ index: IndexDat
 		);
 		batch.forEach((n, i) => {
 			const stat = options.stats?.get(n.path);
-			notes[n.path] = { hash: n.hash, vector: vectors[i]!, tags: extractTags(n.content).all, mtime: stat?.mtime, size: stat?.size };
+			notes[n.path] = { hash: n.hash, vector: vectors[i], tags: extractTags(n.content).all, mtime: stat?.mtime, size: stat?.size };
 		});
 		embedded += batch.length;
 		onProgress?.(embedded, pending.length, 'embedding');
 		batches++;
 		if (options.onCheckpoint && batches % checkpointEvery === 0) {
-			const carried = Object.fromEntries(paths.flatMap((p) => (previous.notes[p] ? [[p, previous.notes[p]!]] : [])));
+			const carried = Object.fromEntries(paths.flatMap((p) => (previous.notes[p] ? [[p, previous.notes[p]]] : [])));
 			await log.time('index', 'saving checkpoint', async () => options.onCheckpoint?.({ ...previous, notes: { ...carried, ...notes } }));
 		}
 		await yieldToUi();

@@ -11,7 +11,7 @@ export class Logger {
 	private readonly started: number;
 
 	constructor(
-		private readonly sink: (line: string) => void = (line) => console.log(line),
+		private readonly sink: (line: string) => void = (line) => console.debug(line),
 		private readonly now: () => number = () => performance.now(),
 	) {
 		this.started = this.now();

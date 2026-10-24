@@ -83,12 +83,12 @@ export function collectTagStats(index: IndexData, options: { centroids?: boolean
 	}
 	return [...groups.values()]
 		.map((group) => {
-			const display = [...group.casings.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+			const display = [...group.casings.entries()].sort((a, b) => b[1] - a[1])[0][0];
 			return {
 				tag: display,
 				count: group.notes.length,
 				notes: group.notes,
-				centroid: withCentroids ? centroid(group.notes.map((p) => index.notes[p]!.vector)) : [],
+				centroid: withCentroids ? centroid(group.notes.map((p) => index.notes[p].vector)) : [],
 			};
 		})
 		.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
@@ -102,7 +102,7 @@ export function buildTree(stats: TagStat[]): TagNode[] {
 		const key = path.join('/').toLowerCase();
 		const found = lookup.get(key);
 		if (found) return found;
-		const node: TagNode = { name: path[path.length - 1]!, tag: path.join('/'), selfCount: 0, totalCount: 0, notes: [], children: [] };
+		const node: TagNode = { name: path[path.length - 1], tag: path.join('/'), selfCount: 0, totalCount: 0, notes: [], children: [] };
 		lookup.set(key, node);
 		if (path.length === 1) roots.push(node);
 		else ensure(path.slice(0, -1)).children.push(node);
@@ -169,7 +169,7 @@ export function findMergeCandidates(stats: TagStat[], options: TaxonomyOptions):
 	const out: MergeCandidate[] = [];
 	for (let i = 0; i < stats.length; i++) {
 		for (let j = i + 1; j < stats.length; j++) {
-			const candidate = mergeCandidateFor(stats[i]!, stats[j]!, options);
+			const candidate = mergeCandidateFor(stats[i], stats[j], options);
 			if (candidate) out.push(candidate);
 		}
 	}
@@ -184,7 +184,7 @@ export async function findMergeCandidatesAsync(
 	const out: MergeCandidate[] = [];
 	for (let i = 0; i < stats.length; i++) {
 		for (let j = i + 1; j < stats.length; j++) {
-			const candidate = mergeCandidateFor(stats[i]!, stats[j]!, options);
+			const candidate = mergeCandidateFor(stats[i], stats[j], options);
 			if (candidate) out.push(candidate);
 		}
 		await tick();
