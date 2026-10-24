@@ -66,6 +66,47 @@
 	margin-top: var(--size-4-3);
 }
 
+/* Settings help */
+.tagafinity-settings-overview ol {
+	margin: 0;
+	padding-left: var(--size-4-5);
+}
+
+.tagafinity-setting-effects {
+	margin-top: var(--size-4-1);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.tagafinity-setting-default {
+	font-style: italic;
+}
+
+/* Notes without tags view */
+.tagafinity-untagged-view {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+}
+
+.tagafinity-untagged-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.tagafinity-untagged-toolbar input[type='search'] {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.tagafinity-untagged-list {
+	flex: 1 1 auto;
+	min-height: 120px;
+	overflow-y: auto;
+}
+
 /* Tag tree view */
 .tagafinity-tree-view {
 	display: flex;

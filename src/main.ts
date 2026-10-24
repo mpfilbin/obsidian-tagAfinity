@@ -17,6 +17,7 @@ import { SuggestTagsModal } from './ui/suggest-modal';
 import { ObsidianVaultGateway } from './vault/obsidian-gateway';
 import type { VaultGateway } from './vault/gateway';
 import { CleanupModal } from './ui/cleanup-modal';
+import { UNTAGGED_NOTES_VIEW, UntaggedNotesView } from './ui/untagged-notes-view';
 import { TAG_TREE_VIEW, TagTreeView } from './ui/tag-tree-view';
 
 /** What an index update did, for callers that want to report it. */
@@ -52,6 +53,7 @@ export default class Tagafinity extends Plugin {
 
 		this.registerView(TAG_TREE_VIEW, (leaf) => new TagTreeView(leaf, this));
 		this.addRibbonIcon('tags', 'Open tag tree', () => void this.openTagTree());
+		this.registerView(UNTAGGED_NOTES_VIEW, (leaf) => new UntaggedNotesView(leaf, this));
 		this.addCommand({
 			id: 'open-tag-tree',
 			name: 'Open tag tree',
@@ -68,6 +70,12 @@ export default class Tagafinity extends Plugin {
 				}
 				new CleanupModal(this.app, this).open();
 			},
+		});
+
+		this.addCommand({
+			id: 'find-untagged-notes',
+			name: 'Find notes without tags',
+			callback: () => void this.openUntaggedNotes(),
 		});
 
 		this.addCommand({
@@ -256,7 +264,8 @@ export default class Tagafinity extends Plugin {
 			return Promise.resolve({ summary, failed: false });
 		}
 		this.syncing ??= (async (): Promise<IndexUpdateResult> => {
-			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''})`);
+			const refreshingTags = this.indexStatus().tagRulesOutdated;
+			log.info('index', `update started (${quiet ? 'background' : 'requested'}${full ? ', full rebuild' : ''}${refreshingTags ? ', refreshing tags' : ''})`);
 			const notice = quiet ? null : new Notice('Updating tag index…', 0);
 			this.setProgress({ phase: 'preparing', done: 0, total: 0 });
 			try {
@@ -279,7 +288,13 @@ export default class Tagafinity extends Plugin {
 				this.notifyIndexChanged();
 				log.info('index', `update finished: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed, ${stats.unchanged} unchanged`);
 				notice?.hide();
-				const summary = `Index updated: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.`;
+				const corrected =
+					stats.retagged > 0
+						? ` Tags corrected in ${stats.retagged} ${stats.retagged === 1 ? 'note' : 'notes'}; no longer tags: ${stats.droppedTags.slice(0, 5).map((t) => '#' + t).join(' ')}${stats.droppedTags.length > 5 ? ' …' : ''}.`
+						: refreshingTags
+							? ' No tags needed correcting.'
+							: '';
+				const summary = `Index updated${refreshingTags ? ' under the new tag detection rules' : ''}: ${stats.added} added, ${stats.updated} changed, ${stats.removed} removed.${corrected}`;
 				if (!quiet) new Notice(summary);
 				return { summary, failed: false };
 			} catch (error) {
@@ -294,6 +309,17 @@ export default class Tagafinity extends Plugin {
 			}
 		})();
 		return this.syncing;
+	}
+
+	/** Shows the notes without tags in the right sidebar, reusing an open panel. */
+	async openUntaggedNotes(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(UNTAGGED_NOTES_VIEW)[0] ?? null;
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false);
+			await leaf?.setViewState({ type: UNTAGGED_NOTES_VIEW, active: true });
+		}
+		if (leaf) await workspace.revealLeaf(leaf);
 	}
 
 	/** Applies a previewed plan, records undo data and keeps the index current. */
