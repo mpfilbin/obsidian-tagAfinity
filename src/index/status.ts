@@ -1,4 +1,5 @@
 import { isExcluded } from './exclude';
+import { TAG_PARSER_VERSION } from '../tags/parse';
 import type { IndexData } from './store';
 import type { NoteStat } from './sync';
 
@@ -12,6 +13,8 @@ export interface IndexStatus {
 	syncedAt: number | undefined;
 	/** Number of notes in the index. */
 	indexed: number;
+	/** The stored tags were found under older detection rules; an update re-derives them (no re-embedding). */
+	tagRulesOutdated: boolean;
 }
 
 /** How far the index is behind the vault, worked out from modification times alone; reads no notes. */
@@ -28,11 +31,19 @@ export function computeIndexStatus(index: IndexData, stats: Map<string, NoteStat
 		else if (entry.mtime !== stat.mtime || entry.size !== stat.size) changed.push(path);
 	}
 	const removed = Object.keys(index.notes).filter((path) => !current.has(path));
-	return { added, changed, removed, syncedAt: index.syncedAt, indexed: Object.keys(index.notes).length };
+	const indexed = Object.keys(index.notes).length;
+	return {
+		added,
+		changed,
+		removed,
+		syncedAt: index.syncedAt,
+		indexed,
+		tagRulesOutdated: indexed > 0 && index.tagsVersion !== TAG_PARSER_VERSION,
+	};
 }
 
 export function pendingChanges(status: IndexStatus): number {
-	return status.added.length + status.changed.length + status.removed.length;
+	return status.added.length + status.changed.length + status.removed.length + (status.tagRulesOutdated ? 1 : 0);
 }
 
 function ago(from: number, now: number): string {
@@ -47,6 +58,9 @@ function ago(from: number, now: number): string {
 export function describeIndexStatus(status: IndexStatus, now: number): string {
 	if (status.indexed === 0) return 'The index has not been built yet.';
 	const when = status.syncedAt ? ago(status.syncedAt, now) : 'at an unknown time';
+	if (status.tagRulesOutdated) {
+		return `Index updated ${when}, but tag detection has improved: update the index to refresh the tags (notes are not re-embedded).`;
+	}
 	const total = pendingChanges(status);
 	if (total === 0) return `Index is up to date (updated ${when}, ${status.indexed} notes).`;
 

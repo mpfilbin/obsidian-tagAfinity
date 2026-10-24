@@ -6,7 +6,7 @@ import type { WorkerRequest, WorkerResponse } from './worker-protocol';
 // Electron can expose Node's `process` inside workers, which makes transformers.js pick a Node runtime its web
 // build does not contain; importAsWebRuntime hides that for the moment the library is evaluated.
 const handle = createWorkerHandler(
-	() => importAsWebRuntime(() => import('@huggingface/transformers')) as unknown as ReturnType<Parameters<typeof createWorkerHandler>[0]>,
+	() => importAsWebRuntime(() => import('@huggingface/transformers')),
 	(message: WorkerResponse) => self.postMessage(message),
 );
 
