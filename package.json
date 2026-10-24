@@ -1,6 +1,6 @@
 {
 	"name": "tagafinity",
-	"version": "0.3.6",
+	"version": "0.3.7",
 	"description": "Suggest and manage tags using semantic similarity between notes.",
 	"main": "main.js",
 	"scripts": {
@@ -22,7 +22,7 @@
 	"devDependencies": {
 		"@types/node": "^26.6.5",
 		"builtin-modules": "^5.4.0",
-		"esbuild": "^0.24.0",
+		"esbuild": "^0.28.2",
 		"eslint": "^10.13.0",
 		"eslint-plugin-obsidianmd": "^0.4.2",
 		"globals": "^14.0.0",
