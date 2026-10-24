@@ -51,6 +51,12 @@ Right-click a tag (or press the menu key) to change it: **Rename…** (the last 
 
 ## Development
 
+Node 24 is the version CI uses and `.nvmrc` is the single source of truth for it (`package.json` `engines` sets the minimum the toolchain supports, 22.13).
+
+- **asdf:** add `legacy_version_file = yes` to `~/.asdfrc`, then `asdf install nodejs` in the repo.
+- **nvm / fnm / mise:** they read `.nvmrc` directly (`nvm use`, `fnm use`, `mise install`).
+- **Windows:** nvm-windows does not read `.nvmrc`, so run `nvm install 24` and `nvm use 24`, or use fnm or mise. `just release` runs a bash script, so run it from Git Bash or WSL; the other recipes and `scripts/install.ps1` work from PowerShell.
+
 ```bash
 just setup   # install
 just dev     # watch build
