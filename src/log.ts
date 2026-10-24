@@ -1,8 +1,9 @@
 const HISTORY_LIMIT = 500;
 
 /**
- * Opt-in diagnostics. Nothing is written or retained while disabled. Output goes through console.log because
- * Chromium's developer console hides console.debug unless the "Verbose" level is switched on.
+ * Opt-in diagnostics. Nothing is written or retained while disabled. Output goes through console.debug, which
+ * Chromium's developer console hides unless the "Verbose" level is switched on; the "Copy debug log" command
+ * is the way to retrieve it without the console.
  */
 export class Logger {
 	private enabled = false;
