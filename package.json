@@ -1,6 +1,6 @@
 {
 	"name": "tagafinity",
-	"version": "0.3.8",
+	"version": "0.3.9",
 	"description": "Suggest and manage tags using semantic similarity between notes.",
 	"main": "main.js",
 	"scripts": {
