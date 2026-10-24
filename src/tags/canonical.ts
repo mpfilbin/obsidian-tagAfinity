@@ -19,11 +19,11 @@ export function levenshteinRatio(a: string, b: string): number {
 	for (let i = 1; i <= a.length; i++) {
 		const row = [i];
 		for (let j = 1; j <= b.length; j++) {
-			row[j] = Math.min(prev[j]! + 1, row[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+			row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
 		}
 		prev = row;
 	}
-	return 1 - prev[b.length]! / Math.max(a.length, b.length);
+	return 1 - prev[b.length] / Math.max(a.length, b.length);
 }
 
 /** True when `short` is made of the initial letters of the words in `long` (ml ↔ machine-learning). */

@@ -143,7 +143,7 @@ export default class Tagafinity extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<TagafinitySettings> | null);
 		this.applyDebugSetting();
 		this.index = await loadIndex(this.indexStorage(), this.settings.embeddingModel);
 		log.info('plugin', `loaded index: ${Object.keys(this.index.notes).length} notes`);

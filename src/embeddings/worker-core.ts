@@ -28,11 +28,12 @@ export function createWorkerHandler(
 	const getExtractor = (model: string): Promise<Extractor> => {
 		extractor ??= (async () => {
 			post({ type: 'log', message: `loading model ${model}` });
-			const { pipeline, env } = await load();
+			const transformers = await load();
+			const { env } = transformers;
 			env.allowLocalModels = false;
 			env.useBrowserCache = cacheAvailable();
 			const lastReported = new Map<string, number>();
-			const created = await pipeline('feature-extraction', model, {
+			const created = await transformers.pipeline('feature-extraction', model, {
 				dtype: 'q8',
 				progress_callback: (info) => {
 					if (info.status !== 'progress' || !info.file) return;

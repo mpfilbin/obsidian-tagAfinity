@@ -1,4 +1,5 @@
 import type { WorkerLike } from './worker-provider';
+import type { WorkerResponse } from './worker-protocol';
 
 /** Starts the embedding worker from its bundled source (a Blob URL, since a plugin ships as a single file). */
 export function spawnEmbeddingWorker(source: string): WorkerLike {
@@ -13,7 +14,7 @@ export function spawnEmbeddingWorker(source: string): WorkerLike {
 		onmessage: null,
 		onerror: null,
 	};
-	worker.onmessage = (event: MessageEvent) => adapter.onmessage?.({ data: event.data });
+	worker.onmessage = (event: MessageEvent) => adapter.onmessage?.({ data: event.data as WorkerResponse });
 	worker.onerror = (event: ErrorEvent) => adapter.onerror?.({ message: event.message });
 	return adapter;
 }
