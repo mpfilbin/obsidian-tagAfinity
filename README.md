@@ -44,6 +44,10 @@ Right-click a tag (or press the menu key) to change it: **Rename…** (the last 
 - Each write is verified by reading the note back; if it does not match what was intended, the original is restored.
 - The original content of every affected note is saved before the first write, so "Undo last tag change" works even if Obsidian stops partway.
 
+## Security
+
+The threat model (STRIDE, with reproducible proofs of concept, security invariants and prioritised recommendations) is in [docs/security/threat-model.md](docs/security/threat-model.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 ## Troubleshooting
 
 - **Debug logging** (plugin settings → Troubleshooting) writes timestamped lines to the developer console (Ctrl+Shift+I) for indexing, embedding, suggestion and cleanup flows, and reports any stretch where the plugin blocked the main thread, with what it was doing. "Copy debug log" (settings or command palette) copies the recent lines so they can be shared.
@@ -52,6 +56,8 @@ Right-click a tag (or press the menu key) to change it: **Rename…** (the last 
 ## Development
 
 Node 24 is the version CI uses and `.nvmrc` is the single source of truth for it (`package.json` `engines` sets the minimum the toolchain supports, 22.13).
+
+Before changing note-parsing code, anything that writes notes or persisted files, network access or downloads, the build/release workflows, or dependencies, read [docs/security/threat-model.md](docs/security/threat-model.md) and put `Threat model: no impact` or `Threat model: updated (IDs)` in the pull request description.
 
 - **asdf:** add `legacy_version_file = yes` to `~/.asdfrc`, then `asdf install nodejs` in the repo.
 - **nvm / fnm / mise:** they read `.nvmrc` directly (`nvm use`, `fnm use`, `mise install`).
