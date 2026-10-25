@@ -46,7 +46,7 @@ Right-click a tag (or press the menu key) to change it: **Rename…** (the last 
 
 ## Security
 
-The threat model (STRIDE, with reproducible proofs of concept, security invariants and prioritised recommendations) is in [docs/security/threat-model.md](docs/security/threat-model.md).
+The threat model (STRIDE, with reproducible proofs of concept, security invariants and prioritised recommendations) is in [docs/security/threat-model.md](docs/security/threat-model.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Troubleshooting
 
