@@ -23,12 +23,17 @@ When these rules change between versions, the index notices and re-derives the s
 
 Right-click a tag (or press the menu key) to change it: **Rename…** (the last part of the name; nested tags follow), **Move under…** (pick a parent, a new one by typing it, or the top level), **Merge into…**, **Remove tag**, and **Remove tag and nested tags**; **Copy tag** and **Show notes** are there too. These do not write anything: each choice is added to a **Pending changes** list above the tree, the affected tags are marked, and you can drop individual changes from the list. **Drag and drop** does the same without the menu: drag a tag onto another to stage "move under" it (hold Alt to merge into it instead), or drop a nested tag on the bar under the tree to move it to the top level. The bar also says what the drop would do while you drag, and refuses impossible drops, such as a tag onto itself or its own descendants. Hovering over a collapsed branch for a moment opens it, and the list scrolls near its edges. Dragging only stages a change, exactly like the menu. **Preview** combines all pending changes into one preview where you can untick notes, and applying them is a single step that "Undo last tag change" reverses.
 
+## Exporting the taxonomy
+
+"Export tag taxonomy to markdown" writes your tag hierarchy to a note (default `Tag taxonomy.md` in the vault root; change it under **Export** in the plugin settings). The file is meant to be read by people and by AI agents: it opens with front matter (`type: tag-taxonomy`, generation time, tag and note counts), a short legend, and then every tag as a nested list with its note counts, e.g. `` - `project` — 3 notes (1 direct) `` with `` `project/alpha` `` indented below it. Tags that exist only as the prefix of nested tags are marked `(grouping only)`. Siblings are ordered by name, so repeated exports differ only where your vault does. The export comes from the index, so update the index first if it is behind. Running the command again replaces the note, but only if it is an earlier export; Tagafinity refuses to overwrite any other note.
+
 ## Commands
 
 - Suggest tags for current note
 - Review tag cleanup
 - Find notes without tags
 - Open tag tree
+- Export tag taxonomy to markdown
 - Update tag index
 - Rebuild tag index from scratch
 - Show tag index status

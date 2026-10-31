@@ -6,6 +6,7 @@ import { normalize } from '../src/vector';
 export class FakeGateway implements VaultGateway {
 	writes: string[] = [];
 	reads: string[] = [];
+	creates: string[] = [];
 	constructor(public files: Record<string, string>, private readonly corruptWrites = false) {}
 	listNotes() {
 		return Promise.resolve(Object.keys(this.files));
@@ -21,6 +22,14 @@ export class FakeGateway implements VaultGateway {
 				.filter(([, content]) => extractTags(content).all.some((t) => t.toLowerCase() === wanted))
 				.map(([path]) => path),
 		);
+	}
+	noteExists(path: string) {
+		return Promise.resolve(path in this.files);
+	}
+	createNote(path: string, content: string) {
+		this.creates.push(path);
+		this.files[path] = content;
+		return Promise.resolve();
 	}
 	writeNote(path: string, content: string) {
 		this.writes.push(path);

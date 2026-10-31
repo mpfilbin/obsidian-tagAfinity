@@ -576,6 +576,7 @@ Controls: plain `#frag` is rewritten (positive); `[x](http://e.com/p#frag)`, a f
 | I-3 | Debug log paths/tags + clipboard | Low | Confirmed | off by default; cleared when disabled (`log.ts` `setEnabled(false)`) | R-12 |
 | I-4 | Third-party requests and IP/UA exposure | Low | Confirmed | none | R-1, R-8 |
 | I-5 | "Excluded notes" (`src/settings.ts:88`) are left out of the index only; tag changes also plan rewrites for them via live metadata (`src/ui/preview-actions.ts:31`), and their text then lands in `last-change.json` | Low | Reasoned | description says "leave out of the index" | R-11 |
+| I-6 | "Export tag taxonomy to markdown" copies every tag name and its note counts (A2) into a vault note, which sync tools, publishers and AI agents may then read; tag names come from note text, so a hostile note author (X1) can plant a name in the export, but names are written only inside backtick spans and the file is never rendered as HTML (V-7) | Low | Reasoned | the export is explicit and user-initiated; destination is a user setting; overwrite is limited to files with the export header (section 6) | R-11 |
 
 ### 5.5 Denial of service
 
@@ -647,6 +648,7 @@ Build inputs under `node_modules` for both bundles (esbuild metafile): `@hugging
 | Read-back verification and restore | `src/cleanup/plan.ts:74` | Truncated or altered writes | **Mitigated** (POC-15), text-level only (T-3) |
 | Originals saved before the first write; failure aborts the apply | `src/cleanup/plan.ts:58`, `src/main.ts:326` | Crash mid-apply | **Mitigated** (POC-21) |
 | `Vault.process` for writes; gateway only operates on existing `TFile`s | `src/vault/obsidian-gateway.ts:26`, `src/vault/obsidian-gateway.ts:13` | Path-based writes outside the vault | Reasoned (AS-2); fake-gateway control in POC-05 |
+| Taxonomy export refuses non-`.md` paths and replaces an existing note only if it starts with the export header (`generator: Tagafinity`, `type: tag-taxonomy`) | `src/commands/export-taxonomy.ts`, `src/taxonomy/export.ts` | A mistyped or hostile setting overwriting a user note | Unit-tested (fake gateway) |
 | Plugin file names are constants joined with `normalizePath` | `src/main.ts:181` | Path injection into the plugin directory | Reasoned |
 | Tag-name validation in the cleanup UI | `src/cleanup/tag-actions.ts` `validateTagName` | Odd characters in renames | Reasoned |
 | LCS diff size cap (4 000 000 cells) | `src/diff.ts:9` | Quadratic memory/time in the preview | **Mitigated** (POC-16: 2 100×2 100 differing lines took 1 ms via the fallback) |
@@ -673,7 +675,7 @@ These must always be true; each should become a regression test.
 | V-5 | After a rewrite, the note's YAML frontmatter parses and equals the original except for intended tag changes | **VIOLATED** | T-3 |
 | V-6 | Undo never discards edits made after the change | **VIOLATED** | T-6 |
 | V-7 | No note, path or tag string is ever interpreted as HTML, script or a template | Holds (POC-28) | H-3 |
-| V-8 | Plugin file writes are limited to constant names in the plugin directory and to existing vault notes | Holds (Reasoned) | T-7 |
+| V-8 | Plugin file writes are limited to constant names in the plugin directory, to existing vault notes, and to the single user-configured taxonomy export note, which is only replaced when it carries the Tagafinity export header | Holds (Reasoned; unit-tested in `tests/commands/export-taxonomy.test.ts`) | T-7, I-6 |
 | V-9 | Parsing one note takes time linear in its size, with an upper bound | **VIOLATED** | D-1 |
 | V-10 | Tag text written into frontmatter or inline is validated or quoted | Not enforced | T-4 |
 | V-11 | Every persisted file is schema-validated and size-bounded on load; undo data is bound to the content it restores | Not enforced | D-3, T-7 |
