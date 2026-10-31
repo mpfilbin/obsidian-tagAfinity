@@ -22,6 +22,17 @@ export class ObsidianVaultGateway implements VaultGateway {
 		return this.app.vault.read(this.note(path));
 	}
 
+	noteExists(path: string): Promise<boolean> {
+		return Promise.resolve(this.app.vault.getAbstractFileByPath(path) instanceof TFile);
+	}
+
+	async createNote(path: string, content: string): Promise<void> {
+		if (this.app.vault.getAbstractFileByPath(path)) throw new Error(`${path} already exists in this vault.`);
+		const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+		if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+		await this.app.vault.create(path, content);
+	}
+
 	async writeNote(path: string, content: string): Promise<void> {
 		await this.app.vault.process(this.note(path), () => content);
 	}

@@ -16,6 +16,8 @@ import { DEFAULT_SETTINGS, TagafinitySettingTab, type TagafinitySettings } from 
 import { SuggestTagsModal } from './ui/suggest-modal';
 import { ObsidianVaultGateway } from './vault/obsidian-gateway';
 import type { VaultGateway } from './vault/gateway';
+import { writeTaxonomyExport } from './commands/export-taxonomy';
+import { buildTree, collectTagStats } from './taxonomy/build';
 import { CleanupModal } from './ui/cleanup-modal';
 import { UNTAGGED_NOTES_VIEW, UntaggedNotesView } from './ui/untagged-notes-view';
 import { TAG_TREE_VIEW, TagTreeView } from './ui/tag-tree-view';
@@ -70,6 +72,12 @@ export default class Tagafinity extends Plugin {
 				}
 				new CleanupModal(this.app, this).open();
 			},
+		});
+
+		this.addCommand({
+			id: 'export-tag-taxonomy',
+			name: 'Export tag taxonomy to markdown',
+			callback: () => void this.exportTaxonomy(),
 		});
 
 		this.addCommand({
@@ -309,6 +317,23 @@ export default class Tagafinity extends Plugin {
 			}
 		})();
 		return this.syncing;
+	}
+
+	/** Writes the tag hierarchy to the configured note as markdown for people and AI agents. */
+	async exportTaxonomy(): Promise<void> {
+		if (!this.hasIndex()) {
+			new Notice('The tag index has not been built yet. Build it from the plugin settings or the update command first.');
+			return;
+		}
+		const path = normalizePath(this.settings.exportPath);
+		try {
+			const tree = buildTree(collectTagStats(this.index, { centroids: false }));
+			const result = await writeTaxonomyExport(this.gateway, path, tree, new Date());
+			if (result.status === 'refused') new Notice(`Tagafinity: ${result.reason}`, 10000);
+			else new Notice(`Tag taxonomy ${result.status} in ${path}.${pendingChanges(this.indexStatus()) > 0 ? ' The index is behind the vault, so it may be out of date.' : ''}`);
+		} catch (error) {
+			new Notice(`Tagafinity: ${error instanceof Error ? error.message : String(error)}`, 10000);
+		}
 	}
 
 	/** Shows the notes without tags in the right sidebar, reusing an open panel. */

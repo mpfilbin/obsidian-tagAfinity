@@ -6,11 +6,23 @@ import { ObsidianVaultGateway } from '../../src/vault/obsidian-gateway';
 function fakeApp(notes: Record<string, { content: string; tags?: string[] }>) {
 	const files = Object.keys(notes).map((path) => new TFile(path));
 	const contents = new Map(Object.entries(notes).map(([path, n]) => [path, n.content]));
-	const folder = { path: 'Folder' };
+	const folders = new Set(['Folder']);
+	const created: string[] = [];
 	const app = {
 		vault: {
 			getMarkdownFiles: () => files,
-			getAbstractFileByPath: (path: string) => (path === 'Folder' ? folder : (files.find((f) => f.path === path) ?? null)),
+			getAbstractFileByPath: (path: string) => (folders.has(path) ? { path } : (files.find((f) => f.path === path) ?? null)),
+			createFolder: (path: string) => {
+				folders.add(path);
+				created.push(`folder:${path}`);
+				return Promise.resolve();
+			},
+			create: (path: string, content: string) => {
+				files.push(new TFile(path));
+				contents.set(path, content);
+				created.push(`file:${path}`);
+				return Promise.resolve();
+			},
 			read: (file: TFile) => Promise.resolve(contents.get(file.path) ?? ''),
 			process: (file: TFile, fn: (data: string) => string) => {
 				const next = fn(contents.get(file.path) ?? '');
@@ -22,7 +34,7 @@ function fakeApp(notes: Record<string, { content: string; tags?: string[] }>) {
 			getFileCache: (file: TFile): FakeCache => ({ tags: notes[file.path]?.tags }),
 		},
 	};
-	return { app: app as unknown as App, contents };
+	return { app: app as unknown as App, contents, created };
 }
 
 describe('ObsidianVaultGateway', () => {
@@ -50,6 +62,62 @@ describe('ObsidianVaultGateway', () => {
 			it('rejects', async () => {
 				const { app } = fakeApp({});
 				await expect(new ObsidianVaultGateway(app).readNote('Folder')).rejects.toThrow('not a note');
+			});
+		});
+	});
+
+	describe('noteExists', () => {
+		it('is true for a note', async () => {
+			const { app } = fakeApp({ 'a.md': { content: '' } });
+			expect(await new ObsidianVaultGateway(app).noteExists('a.md')).toBe(true);
+		});
+
+		it('is false for a missing path', async () => {
+			const { app } = fakeApp({});
+			expect(await new ObsidianVaultGateway(app).noteExists('missing.md')).toBe(false);
+		});
+
+		it('is false for a folder', async () => {
+			const { app } = fakeApp({});
+			expect(await new ObsidianVaultGateway(app).noteExists('Folder')).toBe(false);
+		});
+	});
+
+	describe('createNote', () => {
+		describe('when the path is already taken', () => {
+			it('rejects', async () => {
+				const { app } = fakeApp({ 'a.md': { content: '' } });
+				await expect(new ObsidianVaultGateway(app).createNote('a.md', 'x')).rejects.toThrow('already exists');
+			});
+		});
+
+		describe('when the note is at the vault root', () => {
+			it('creates it with the content', async () => {
+				const { app, contents } = fakeApp({});
+				await new ObsidianVaultGateway(app).createNote('new.md', 'hello');
+				expect(contents.get('new.md')).toBe('hello');
+			});
+
+			it('creates no folder', async () => {
+				const { app, created } = fakeApp({});
+				await new ObsidianVaultGateway(app).createNote('new.md', 'hello');
+				expect(created).toEqual(['file:new.md']);
+			});
+		});
+
+		describe('when the folder is missing', () => {
+			it('creates the folder before the note', async () => {
+				const { app, created } = fakeApp({});
+				await new ObsidianVaultGateway(app).createNote('Meta/new.md', 'hello');
+				expect(created).toEqual(['folder:Meta', 'file:Meta/new.md']);
+			});
+		});
+
+		describe('when the folder exists', () => {
+			it('does not create it again', async () => {
+				const { app, created } = fakeApp({});
+				await new ObsidianVaultGateway(app).createNote('Folder/new.md', 'hello');
+				expect(created).toEqual(['file:Folder/new.md']);
 			});
 		});
 	});

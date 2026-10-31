@@ -15,6 +15,8 @@ export interface TagafinitySettings {
 	syncOnStartup: boolean;
 	/** One pattern per line: "*.ext" or a folder path. */
 	excludePatterns: string;
+	/** Vault-relative path of the note "Export tag taxonomy" writes. */
+	exportPath: string;
 	/** Run embedding inference in a background worker so Obsidian stays responsive. */
 	useEmbeddingWorker: boolean;
 	debugLogging: boolean;
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: TagafinitySettings = {
 	maxNewTags: 2,
 	syncOnStartup: false,
 	excludePatterns: '*.excalidraw.md',
+	exportPath: 'Tag taxonomy.md',
 	useEmbeddingWorker: true,
 	debugLogging: false,
 };
@@ -114,6 +117,21 @@ export class TagafinitySettingTab extends PluginSettingTab {
 					this.plugin.settings.syncOnStartup = value;
 					await this.plugin.saveSettings();
 				}),
+			);
+
+		new Setting(containerEl).setName('Export').setHeading();
+
+		new Setting(containerEl)
+			.setName('Taxonomy export note')
+			.setDesc('Where the export command writes the tag hierarchy as Markdown, for people and AI agents to read. An existing note there is only replaced if it is an earlier export.')
+			.addText((text) =>
+				text
+					.setPlaceholder(DEFAULT_SETTINGS.exportPath)
+					.setValue(this.plugin.settings.exportPath)
+					.onChange(async (value) => {
+						this.plugin.settings.exportPath = value.trim() || DEFAULT_SETTINGS.exportPath;
+						await this.plugin.saveSettings();
+					}),
 			);
 
 		this.displayDebugging();
